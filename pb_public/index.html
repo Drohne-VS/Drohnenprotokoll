@@ -218,7 +218,15 @@ tfoot td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: 0;
 .wx { display: flex; gap: 10px 22px; flex-wrap: wrap; }
 .wx-g { display: grid; gap: 5px; }
 .wx-l { font: 600 13px/1 var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.pick { display: flex; flex-wrap: wrap; gap: 4px; }
+.pick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.melde { display: grid; gap: 6px; }
+.melde-r { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
+.chk { gap: 10px; font-weight: 600; background: var(--bg); padding: 9px 14px 9px 10px; }
+.chk .box { width: 20px; height: 20px; border: 2px solid var(--muted); border-radius: 4px; display: inline-grid; place-items: center; font-size: 14px; line-height: 1; }
+.chk[aria-pressed="true"] { border-color: var(--ok); background: var(--ok-soft); }
+.chk[aria-pressed="true"] .box { background: var(--ok); border-color: var(--ok); color: #fff; }
+a.tel { font-family: var(--f-mono); font-size: 13.5px; color: var(--chart); white-space: nowrap; }
+.pick a.tel { font-family: var(--f-mono); font-size: 13px; color: var(--chart); margin: 0 10px 0 4px; white-space: nowrap; }
 .pick button { padding: 7px 11px; font-weight: 500; font-size: 13.5px; background: var(--bg); }
 .pick button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .crewline { font-size: 14px; display: flex; gap: 4px 10px; flex-wrap: wrap; align-items: baseline; }
@@ -400,6 +408,13 @@ const WETTER = [
 ];
 const ANBINDUNG = [["", "– wählen –"], ["fg", "Führungsgruppe"], ["bildschirm", "Eigenständiger Bildschirm"], ["evd", "Direkt EvD"], ["el", "Sonstige Einsatzleitung"]];
 const ANB_LABEL = { fg: "Führungsgruppe", bildschirm: "Eigenständiger Bildschirm", evd: "Direkt EvD", el: "Sonstige Einsatzleitung", keine: "Keine" };
+const MELDE_DEFAULT = [
+  { name: "Leitstelle SBK", tel: "" },
+  { name: "Polizeirevier Villingen", tel: "07721 601-0" },
+  { name: "Polizeirevier Schwenningen", tel: "07720 8500-0" },
+];
+const meldestellen = () => Array.isArray(S.config.meldestellen) && S.config.meldestellen.length ? S.config.meldestellen : MELDE_DEFAULT;
+const telHref = t => "tel:" + String(t || "").replace(/[^\d+]/g, "");
 const ANFORDERUNG = ["Leitstelle SBK", "EvD", "Sonstige"];
 const PT = {
   start:  { l: "Startplatz",         s: "S", c: "#1F4E79" },
@@ -563,7 +578,7 @@ const Store = (() => {
     S.members = recs("members").map(r => ({ id: r.id, name: r.name || "", quali: r.quali || "", aktiv: r.aktiv !== false })).sort(byName);
     S.drones = recs("drones").map(r => ({ id: r.id, name: r.name || "", typ: r.modell || "", kennung: r.kennung || "", aktiv: r.aktiv !== false })).sort(byName);
     const cf = recs("config")[0];
-    S.config = cf ? { id: cf.id, einheit: cf.einheit || "", gruppe: cf.gruppe || "", routineMin30: cf.routineMin30 || "", routineMin90: cf.routineMin90 || "",
+    S.config = cf ? { id: cf.id, einheit: cf.einheit || "", gruppe: cf.gruppe || "", routineMin30: cf.routineMin30 || "", routineMin90: cf.routineMin90 || "", meldestellen: Array.isArray(cf.meldestellen) ? cf.meldestellen : null,
       logoUrl: cf.logo && cf.collectionId ? pb.files.getURL(cf, cf.logo) : "" } : {};
     S.protokoll = recs("protokoll").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit, text: r.text, tag: r.tag || "", created: r.created || "", _pending: !!r._pending }))
       .sort((a, b) => (tmin(a.zeit) ?? 0) - (tmin(b.zeit) ?? 0) || String(a.created).localeCompare(String(b.created)));
@@ -996,7 +1011,13 @@ function vProtokoll() {
     <p class="muted" style="font-size:13.5px">Start und Landung tragen die Uhrzeit automatisch in den Flug ein. Wetter, Wind und Sicht antippen – jede Änderung wird mit Uhrzeit protokolliert. Jeder Eintrag wird sofort gespeichert, auch ohne Netz. Wie im Funkbuch wird nichts gelöscht: Fehler mit „Korrigieren“ als neuen Eintrag berichtigen.</p>
     ${last && !dis ? `<div class="crewline"><span class="muted">${last.landung ? "Nächster Flug mit" : "In der Luft"}:</span> ${(last.crew || []).filter(c => c.memberId).map(c => `<b>${esc(ROLES_S[c.role])}</b> ${esc(memberName(c.memberId))}`).join(" · ") || `<span class="muted">Crew noch nicht eingetragen</span>`} <button class="ghost sm" data-act="tocrew" style="padding:2px 6px">Crew ändern</button></div>` : ""}
     ${q ? `<div class="quick">${q}</div>` : ""}
-    <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-l="${g.l}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis ? "disabled" : ""}>${esc(o)}</button>`).join("")}</div></div>`).join("")}</div>
+    <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-l="${g.l}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis ? "disabled" : ""}>${esc(o)}</button>`).join("")}</div></div>`).join("")}
+    </div>
+    <div class="melde"><span class="wx-l">Informiert über den Flug</span>
+      ${meldestellen().map((s, i) => { const done = log.filter(x => x.tag === "Meldung" && x.text.startsWith(s.name + " informiert")); const last = done[done.length - 1];
+        return `<div class="melde-r ${done.length ? "done" : ""}"><button type="button" class="chk" data-act="melde" data-i="${i}" ${dis ? "disabled" : ""} aria-pressed="${!!done.length}"><span class="box">${done.length ? "✓" : ""}</span>${esc(s.name)}</button>
+          ${last ? `<span class="mono muted">${esc(last.zeit)}</span>` : ""}${s.tel ? `<a class="tel" href="${telHref(s.tel)}">${esc(s.tel)}</a>` : ""}</div>`; }).join("")}
+    </div>
     ${dis ? "" : `<div class="log-in"><input type="time" id="logTime" class="mono" value="${nowTime()}" aria-label="Uhrzeit"><input id="logText" placeholder="Eintrag, z. B. Person im Planquadrat G2 gesichtet" aria-label="Protokolleintrag"><button class="primary" data-act="logadd">Eintragen</button></div>`}
     ${log.length ? `<div class="log">${log.slice().reverse().map(x => `<div class="log-row"><span class="tm">${esc(x.zeit)}</span><span class="tx">${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ""}${esc(x.text)}${x._pending ? ` <span class="muted" title="Noch nicht übertragen">⏳</span>` : ""}</span>${dis ? "<span></span>" : `<span class="row" style="gap:2px;flex-wrap:nowrap"><button class="ghost sm" data-act="logfix" data-id="${esc(x.id)}">Korrigieren</button>${isAdmin() ? (S.confirm === "l-" + x.id ? `<button class="sm danger" data-act="logdel" data-id="${esc(x.id)}">Löschen?</button>` : `<button class="ghost danger sm" data-act="askdel" data-k="l-${esc(x.id)}" aria-label="Eintrag löschen">✕</button>`) : ""}</span>`}</div>`).join("")}</div>` : `<span class="muted">Noch keine Einträge.</span>`}
   </section>`;
@@ -1299,7 +1320,15 @@ function vStamm() {
     <p class="muted" style="font-size:13px">Name und Logo erscheinen im Kopf der App und auf jedem PDF-Bericht.</p></section>
   <section class="sec"><h2>Routine-Regel</h2>
     <div class="rule-in">Grün („In Übung“) bei mindestens <input id="cfg-m30" data-cfg="routineMin30" inputmode="numeric" class="mono" value="${esc(rule().m30)}" ${dis}> Minuten Flugzeit als Pilot in den letzten 30 Tagen <strong>und</strong> <input id="cfg-m90" data-cfg="routineMin90" inputmode="numeric" class="mono" value="${esc(rule().m90)}" ${dis}> Minuten in den letzten 90 Tagen.</div>
-    <p class="muted" style="font-size:13px">Einsatz- und Übungsflüge zählen zusammen. Gelb: im 90-Tage-Zeitraum geflogen, aber zu wenig. Rot: in 90 Tagen nicht als Pilot geflogen. Eine interne Orientierung für die Übungsplanung – maßgeblich bleiben eure Dienstvorschriften.</p></section></div>`;
+    <p class="muted" style="font-size:13px">Einsatz- und Übungsflüge zählen zusammen. Gelb: im 90-Tage-Zeitraum geflogen, aber zu wenig. Rot: in 90 Tagen nicht als Pilot geflogen. Eine interne Orientierung für die Übungsplanung – maßgeblich bleiben eure Dienstvorschriften.</p></section>
+  <section class="sec"><h2>Meldestellen im Protokoll</h2>
+    <p class="muted" style="font-size:13px">Diese Stellen erscheinen im Einsatzprotokoll zum Abhaken („informiert über den Flug“). Bitte die Telefonnummern prüfen – die Nummern der Polizeireviere stammen aus öffentlichen Telefonverzeichnissen, die Nummer der Leitstelle bitte selbst eintragen.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Bezeichnung</th><th>Telefon</th><th></th></tr></thead><tbody>
+    ${meldestellen().map((s, i) => `<tr><td><input id="ms-n-${i}" data-melde="${i}" data-field="name" value="${esc(s.name)}" ${dis}></td><td><input id="ms-t-${i}" class="mono" data-melde="${i}" data-field="tel" value="${esc(s.tel || "")}" placeholder="Nummer eintragen" ${dis}></td>
+      <td class="r">${dis ? "" : S.confirm === "ms-" + i ? `<span class="confirm">Entfernen? <button class="sm danger" data-act="delmelde" data-i="${i}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="ms-${i}">Entfernen</button>`}</td></tr>`).join("")}
+    </tbody></table></div>
+    ${dis ? "" : `<div class="row"><input id="nm-name" placeholder="z. B. Flugleitung / DFS" style="flex:2 1 200px;width:auto"><input id="nm-tel" class="mono" placeholder="Telefon" style="flex:1 1 140px;width:auto"><button data-act="addmelde">Hinzufügen</button></div>`}
+  </section></div>`;
   // Mitglieder
   h += `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Mitglieder</h2><span class="muted">${S.members.filter(m => m.aktiv !== false).length} aktiv</span></div>
     ${dis ? "" : `<div class="row"><input id="newMember" placeholder="Vor- und Nachname" style="flex:2 1 200px;width:auto"><input id="newMemberQ" placeholder="Qualifikation, z. B. A1/A3 + A2" style="flex:2 1 200px;width:auto"><button class="primary" data-act="addmember">Hinzufügen</button></div>`}
@@ -1398,6 +1427,11 @@ document.addEventListener("change", e => {
     let v = t.value.trim(); if (/^routine/.test(t.dataset.cfg)) { v = parseInt(v, 10); if (!(v >= 1)) { toast("Bitte eine Zahl ab 1 (Minuten) eingeben."); render(); return; } }
     Store.upsert("config", S.config.id || pbId(), { [t.dataset.cfg]: v }).then(() => toast("Gespeichert")); return;
   }
+  if (t.dataset.melde != null && isAdmin()) {
+    const l = meldestellen().map(x => ({ ...x })); const i = +t.dataset.melde; const v = t.value.trim();
+    if (t.dataset.field === "name" && !v) { toast("Bezeichnung darf nicht leer sein."); render(); return; }
+    l[i][t.dataset.field] = v; Store.upsert("config", S.config.id || pbId(), { meldestellen: l }).then(() => toast("Gespeichert")); return;
+  }
   if (t.dataset.mem && isAdmin()) { const v = t.value.trim(); if (t.dataset.field === "name" && !v) { toast("Name darf nicht leer sein."); render(); return; } Store.upsert("members", t.dataset.mem, { [t.dataset.field]: v }).then(() => toast("Gespeichert")); return; }
   if (t.dataset.dr && isAdmin()) { const v = t.value.trim(); if (t.dataset.field === "name" && !v) { toast("Bezeichnung darf nicht leer sein."); render(); return; } Store.upsert("drones", t.dataset.dr, { [t.dataset.field === "typ" ? "modell" : t.dataset.field]: v }).then(() => toast("Gespeichert")); return; }
 });
@@ -1484,6 +1518,11 @@ function act(a, b) {
       if (nv && /^wetter\./.test(b.dataset.b)) logPush(`${b.dataset.l}: ${nv}`, "Wetter", nowTime()); else { markDirty(); render(); }
       break;
     }
+    case "melde": { if (ro()) return; const s = meldestellen()[+b.dataset.i]; if (!s) return; const again = protoFor(d.id).some(x => x.tag === "Meldung" && x.text.startsWith(s.name + " informiert"));
+      logPush(`${s.name} informiert${again ? " (erneut)" : ""}${s.tel ? " – " + s.tel : ""}`, "Meldung", nowTime()); break; }
+    case "addmelde": { const n = $("#nm-name").value.trim(), t = $("#nm-tel").value.trim(); if (!n) { toast("Bitte eine Bezeichnung eingeben."); return; }
+      Store.upsert("config", S.config.id || pbId(), { meldestellen: [...meldestellen(), { name: n, tel: t }] }).then(() => toast("Hinzugefügt")); break; }
+    case "delmelde": { const l = meldestellen().slice(); l.splice(+b.dataset.i, 1); S.confirm = null; Store.upsert("config", S.config.id || pbId(), { meldestellen: l.length ? l : [] }).then(() => toast("Entfernt")); break; }
     case "tocrew": { const el = document.getElementById("sec-fluege"); if (el) el.scrollIntoView({ behavior: "smooth" }); break; }
     case "pdf": reportPDF(); break;
     case "ppdf": personPDF(); break;
