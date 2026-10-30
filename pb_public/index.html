@@ -922,8 +922,8 @@ function inp(label, b, opts = {}) {
   if (opts.options) return `<label${cls}><span>${label}</span><select id="${id}" data-b="${b}" ${opts.rr ? "data-rr" : ""} ${dis}>${opts.options.map(o => { const [k, l] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(k)}" ${String(v) === String(k) ? "selected" : ""}>${esc(l)}</option>`; }).join("")}</select></label>`;
   return `<label${cls}><span>${label}</span><input id="${id}" data-b="${b}" type="${opts.type || "text"}" ${opts.inputmode ? `inputmode="${opts.inputmode}"` : ""} value="${esc(v)}" placeholder="${esc(opts.ph || "")}" ${opts.mono ? 'class="mono"' : ""} ${dis}></label>`;
 }
-function memberOptions(sel) {
-  const act = S.members.filter(m => m.aktiv !== false || m.id === sel);
+function memberOptions(sel, exclude) {
+  const act = S.members.filter(m => (m.aktiv !== false || m.id === sel) && (!exclude || m.id !== exclude || m.id === sel));
   let o = `<option value="">– Person wählen –</option>` + act.map(m => `<option value="${esc(m.id)}" ${m.id === sel ? "selected" : ""}>${esc(m.name)}</option>`).join("");
   if (sel && !S.members.find(m => m.id === sel)) o += `<option value="${esc(sel)}" selected>(entfernt)</option>`;
   return o;
@@ -1067,9 +1067,10 @@ function flugState(d) {
 }
 function curCrew(d) { const fl = d.flights || [], last = fl[fl.length - 1], st = flugState(d); return (st === "luft" || !d.nextCrew) && last ? last.crew || [] : d.nextCrew || []; }
 function crewSlots(idx, crew, dis) {
+  const pil = (crew.find(x => x.role === "pilot") || {}).memberId;
   return ROLES.map(r => { const c = crew.find(x => x.role === r.k) || {}; return `<div class="slot">
     <div class="sl">${r.l}<small>${r.hint}</small></div>
-    <select id="cr-${idx}-${r.k}" data-crew="${idx}" data-role="${r.k}" ${dis} ${r.k === "pilot" ? `class="${c.memberId ? "" : "req"}"` : ""}>${r.k === "pilot" ? memberOptions(c.memberId).replace("– Person wählen –", "– Pilot wählen (Pflicht) –") : memberOptions(c.memberId).replace("– Person wählen –", "– nicht besetzt –")}</select></div>`; }).join("");
+    <select id="cr-${idx}-${r.k}" data-crew="${idx}" data-role="${r.k}" ${dis} ${r.k === "pilot" ? `class="${c.memberId ? "" : "req"}"` : ""}>${r.k === "pilot" ? memberOptions(c.memberId).replace("– Person wählen –", "– Pilot wählen (Pflicht) –") : memberOptions(c.memberId, pil).replace("– Person wählen –", "– nicht besetzt –")}</select></div>`; }).join("");
 }
 function vFlug() {
   const d = S.draft, dis = ro() ? "disabled" : "", fl = d.flights || [], st = flugState(d);
@@ -1441,7 +1442,9 @@ document.addEventListener("change", e => {
     const dd = S.draft; if (t.dataset.crew === "next" && !dd.nextCrew) dd.nextCrew = clone(curCrew(dd));
     const f = t.dataset.crew === "next" ? { get crew() { return dd.nextCrew; }, set crew(v) { dd.nextCrew = v; } } : dd.flights[+t.dataset.crew]; const k = t.dataset.role;
     if (k === "pilot" && !t.value && (f.crew || []).some(c => c.role === "pilot" && c.memberId)) { toast("Der Pilot kann nicht leer bleiben – bitte eine andere Person wählen."); render(); return; }
-    f.crew = (f.crew || []).filter(c => c.role !== k); if (t.value) f.crew.push({ memberId: t.value, role: k });
+    const pilNow = ((f.crew || []).find(c => c.role === "pilot") || {}).memberId;
+    if (k !== "pilot" && t.value && t.value === pilNow) { toast("Der Pilot kann keine weitere Position übernehmen."); render(); return; }
+    f.crew = (f.crew || []).filter(c => c.role !== k && !(k === "pilot" && t.value && c.memberId === t.value)); if (t.value) f.crew.push({ memberId: t.value, role: k });
     f.crew.sort((a, b) => ROLES.findIndex(r => r.k === a.role) - ROLES.findIndex(r => r.k === b.role));
     markDirty(); render(); return;
   }
@@ -1543,7 +1546,7 @@ function act(a, b) {
       S.askPilot = null;
       const t = nowTime();
       const f = { id: uid("f"), droneId: (prev && prev.droneId) || d.droneId || (S.drones.filter(x => x.aktiv !== false).length === 1 ? S.drones.find(x => x.aktiv !== false).id : ""), start: t, landung: "", akkus: "1", crew: clone(crew0).filter(c => c.role !== "pilot"), bemerkung: "" };
-      f.crew.unshift({ memberId: pilot, role: "pilot" });
+      f.crew = f.crew.filter(c => c.memberId !== pilot); f.crew.unshift({ memberId: pilot, role: "pilot" });
       d.flights.push(f); delete d.nextCrew; S.dirty = true;
       logPush(`${prev ? "Flug wieder aufgenommen" : "Flug gestartet"} (Pilot: ${memberName(pilot)})`, "Start", t); break;
     }
@@ -1564,7 +1567,14 @@ function act(a, b) {
       if (old === np) { toast("Das ist bereits der aktuelle Pilot."); return; }
       const t = nowTime();
       // neuer Pilot übernimmt die Pilotenrolle; war er vorher z. B. Spotter, wechselt der alte Pilot auf dessen Rolle
-      const swapCrew = crew => { const other = crew.find(c => c.memberId === np && c.role !== "pilot"); return crew.map(c => c.role === "pilot" ? { ...c, memberId: np } : other && c === other && old ? { ...c, memberId: old } : c); };
+      // neuer Pilot nur noch als Pilot; der bisherige Pilot übernimmt die frei gewordene Rolle (bevorzugt Spotter)
+      const swapCrew = crew => {
+        const freed = crew.filter(c => c.memberId === np && c.role !== "pilot").map(c => c.role).sort((a, b) => (a === "beob" ? -1 : 0) - (b === "beob" ? -1 : 0));
+        let out = crew.filter(c => !(c.memberId === np && c.role !== "pilot")).map(c => c.role === "pilot" ? { ...c, memberId: np } : c);
+        if (!out.some(c => c.role === "pilot")) out.unshift({ memberId: np, role: "pilot" });
+        if (old && freed.length && !out.some(c => c.memberId === old)) out.push({ memberId: old, role: freed[0] });
+        return out.sort((a, b) => ROLES.findIndex(r => r.k === a.role) - ROLES.findIndex(r => r.k === b.role));
+      };
       if (f.start && !f.landung) {
         f.landung = t;
         d.flights.push({ id: uid("f"), droneId: f.droneId, start: t, landung: "", akkus: "0", crew: swapCrew(clone(f.crew)), bemerkung: "", wechsel: true });
