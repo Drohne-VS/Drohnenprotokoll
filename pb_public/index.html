@@ -953,6 +953,11 @@ function vEdit() {
     ${d.anforderung === "Sonstige" ? inp("Anforderung – wer?", "anforderungText", { ph: "z. B. Polizei, Nachbarwehr" }) : ""}
     ${inp("Anbindung an", "anbindung", { options: [...ANBINDUNG, ...(d.anbindung && !ANBINDUNG.some(a => a[0] === d.anbindung) ? [[d.anbindung, ANB_LABEL[d.anbindung] || d.anbindung]] : [])] })}
   </div>
+  <div class="melde"><span class="wx-l">Über den Flug informiert</span>
+    ${meldestellen().map((s, i) => { const t = (d.meldungen || {})[s.name];
+      return `<div class="melde-r"><button type="button" class="chk" data-act="melde" data-i="${i}" ${dis} aria-pressed="${!!t}"><span class="box">${t ? "✓" : ""}</span>${esc(s.name)}</button>
+        ${t ? `<span class="mono muted">${esc(t)} Uhr</span>` : ""}${s.tel ? `<a class="tel" href="${telHref(s.tel)}">${esc(s.tel)}</a>` : ""}</div>`; }).join("")}
+  </div>
   </section>`;
   // 2 Protokoll – Hauptarbeitsbereich des Technikers
   h += vProtokoll();
@@ -1013,11 +1018,6 @@ function vProtokoll() {
     ${last && !dis ? `<div class="crewline"><span class="muted">${last.landung ? "Nächster Flug mit" : "In der Luft"}:</span> ${(last.crew || []).filter(c => c.memberId).map(c => `<b>${esc(ROLES_S[c.role])}</b> ${esc(memberName(c.memberId))}`).join(" · ") || `<span class="muted">Crew noch nicht eingetragen</span>`} <button class="ghost sm" data-act="tocrew" style="padding:2px 6px">Crew ändern</button></div>` : ""}
     ${q ? `<div class="quick">${q}</div>` : ""}
     <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-l="${g.l}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis ? "disabled" : ""}>${esc(o)}</button>`).join("")}</div></div>`).join("")}
-    </div>
-    <div class="melde"><span class="wx-l">Informiert über den Flug</span>
-      ${meldestellen().map((s, i) => { const done = log.filter(x => x.tag === "Meldung" && x.text.startsWith(s.name + " informiert")); const last = done[done.length - 1];
-        return `<div class="melde-r ${done.length ? "done" : ""}"><button type="button" class="chk" data-act="melde" data-i="${i}" ${dis ? "disabled" : ""} aria-pressed="${!!done.length}"><span class="box">${done.length ? "✓" : ""}</span>${esc(s.name)}</button>
-          ${last ? `<span class="mono muted">${esc(last.zeit)}</span>` : ""}${s.tel ? `<a class="tel" href="${telHref(s.tel)}">${esc(s.tel)}</a>` : ""}</div>`; }).join("")}
     </div>
     ${dis ? "" : `<div class="log-in"><input type="time" id="logTime" class="mono" value="${nowTime()}" aria-label="Uhrzeit"><input id="logText" placeholder="Eintrag, z. B. Person im Planquadrat G2 gesichtet" aria-label="Protokolleintrag"><button class="primary" data-act="logadd">Eintragen</button></div>`}
     ${log.length ? `<div class="log">${log.slice().reverse().map(x => `<div class="log-row"><span class="tm">${esc(x.zeit)}</span><span class="tx">${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ""}${esc(x.text)}${x._pending ? ` <span class="muted" title="Noch nicht übertragen">⏳</span>` : ""}</span>${dis ? "<span></span>" : `<span class="row" style="gap:2px;flex-wrap:nowrap"><button class="ghost sm" data-act="logfix" data-id="${esc(x.id)}">Korrigieren</button>${isAdmin() ? (S.confirm === "l-" + x.id ? `<button class="sm danger" data-act="logdel" data-id="${esc(x.id)}">Löschen?</button>` : `<button class="ghost danger sm" data-act="askdel" data-k="l-${esc(x.id)}" aria-label="Eintrag löschen">✕</button>`) : ""}</span>`}</div>`).join("")}</div>` : `<span class="muted">Noch keine Einträge.</span>`}
@@ -1322,8 +1322,8 @@ function vStamm() {
   <section class="sec"><h2>Routine-Regel</h2>
     <div class="rule-in">Grün („In Übung“) bei mindestens <input id="cfg-m30" data-cfg="routineMin30" inputmode="numeric" class="mono" value="${esc(rule().m30)}" ${dis}> Minuten Flugzeit als Pilot in den letzten 30 Tagen <strong>und</strong> <input id="cfg-m90" data-cfg="routineMin90" inputmode="numeric" class="mono" value="${esc(rule().m90)}" ${dis}> Minuten in den letzten 90 Tagen.</div>
     <p class="muted" style="font-size:13px">Einsatz- und Übungsflüge zählen zusammen. Gelb: im 90-Tage-Zeitraum geflogen, aber zu wenig. Rot: in 90 Tagen nicht als Pilot geflogen. Eine interne Orientierung für die Übungsplanung – maßgeblich bleiben eure Dienstvorschriften.</p></section>
-  <section class="sec"><h2>Meldestellen im Protokoll</h2>
-    <p class="muted" style="font-size:13px">Diese Stellen erscheinen im Einsatzprotokoll zum Abhaken („informiert über den Flug“). Ein Tipp im Protokoll hakt die Stelle ab und schreibt die Uhrzeit mit. Die Nummer lässt sich auf Handy und Tablet direkt antippen.</p>
+  <section class="sec"><h2>Meldestellen</h2>
+    <p class="muted" style="font-size:13px">Diese Stellen erscheinen im Bericht oben bei den Einsatzdaten zum Abhaken; die Uhrzeit wird mitgespeichert. Die Nummer lässt sich auf Handy und Tablet direkt antippen.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Bezeichnung</th><th>Telefon</th><th></th></tr></thead><tbody>
     ${meldestellen().map((s, i) => `<tr><td><input id="ms-n-${i}" data-melde="${i}" data-field="name" value="${esc(s.name)}" ${dis}></td><td><input id="ms-t-${i}" class="mono" data-melde="${i}" data-field="tel" value="${esc(s.tel || "")}" placeholder="Nummer eintragen" ${dis}></td>
       <td class="r">${dis ? "" : S.confirm === "ms-" + i ? `<span class="confirm">Entfernen? <button class="sm danger" data-act="delmelde" data-i="${i}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="ms-${i}">Entfernen</button>`}</td></tr>`).join("")}
@@ -1519,8 +1519,12 @@ function act(a, b) {
       if (nv && /^wetter\./.test(b.dataset.b)) logPush(`${b.dataset.l}: ${nv}`, "Wetter", nowTime()); else { markDirty(); render(); }
       break;
     }
-    case "melde": { if (ro()) return; const s = meldestellen()[+b.dataset.i]; if (!s) return; const again = protoFor(d.id).some(x => x.tag === "Meldung" && x.text.startsWith(s.name + " informiert"));
-      logPush(`${s.name} informiert${again ? " (erneut)" : ""}${s.tel ? " – " + s.tel : ""}`, "Meldung", nowTime()); break; }
+    case "melde": {
+      if (ro()) return; const s = meldestellen()[+b.dataset.i]; if (!s) return;
+      d.meldungen = { ...(d.meldungen || {}) };
+      if (d.meldungen[s.name]) delete d.meldungen[s.name]; else d.meldungen[s.name] = nowTime();
+      S.dirty = true; saveDraft(); break;
+    }
     case "addmelde": { const n = $("#nm-name").value.trim(), t = $("#nm-tel").value.trim(); if (!n) { toast("Bitte eine Bezeichnung eingeben."); return; }
       Store.upsert("config", S.config.id || pbId(), { meldestellen: [...meldestellen(), { name: n, tel: t }] }).then(() => toast("Hinzugefügt")); break; }
     case "delmelde": { const l = meldestellen().slice(); l.splice(+b.dataset.i, 1); S.confirm = null; Store.upsert("config", S.config.id || pbId(), { meldestellen: l.length ? l : [] }).then(() => toast("Entfernt")); break; }
@@ -1660,6 +1664,7 @@ async function reportPDF() {
     [U ? "Thema" : "Stichwort", m.stichwort, 2], ["Datum", fmtDate(m.datum)],
     ["Ort / Adresse", m.ort, 2], [U ? "Zeitraum" : "Alarm / Beginn – Ende", `${m.beginn || "–"} – ${m.ende || "–"} Uhr` + (m.ende ? ` (${fmtH(dur(m.beginn, m.ende))} h)` : "")],
     ["Anforderung durch", m.anforderung === "Sonstige" && m.anforderungText ? "Sonstige: " + m.anforderungText : m.anforderung], [U ? "Verantwortlich UAS" : "Einsatzleiter vor Ort", m.einsatzleiter], ["Anbindung an", ANB_LABEL[m.anbindung] || m.anbindung || "–"], ["Flugzeit gesamt", `${fmtH(missionFlightMin(m))} h in ${(m.flights || []).length} Flug/Flügen`],
+    ["Über den Flug informiert", Object.entries(m.meldungen || {}).map(([n, t]) => `${n} (${t} Uhr)`).join(", ") || "–", 3],
     ["Wetter (zuletzt)", [(m.wetter || {}).lage, (m.wetter || {}).wind ? "Wind " + m.wetter.wind : "", (m.wetter || {}).sicht ? "Sicht " + m.wetter.sicht : ""].filter(Boolean).join(", ")],
   ]);
   if (m.auftrag) para(c, U ? "Übungsziel / Inhalte" : "Auftrag", m.auftrag);
