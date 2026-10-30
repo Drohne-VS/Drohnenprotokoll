@@ -1,0 +1,16 @@
+{
+  "name": "UAS-Flugbuch Feuerwehr",
+  "short_name": "UAS-Flugbuch",
+  "description": "Einsatz- und Übungsberichte, Protokoll und Flugstunden der Drohnengruppe",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EEF0EE",
+  "theme_color": "#AF2B1E",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
