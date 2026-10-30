@@ -233,6 +233,7 @@ select.req { border-color: var(--accent); border-width: 2px; }
 .flight.nopil { border-color: var(--accent); }
 .askpil { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; padding: 12px; border: 2px solid var(--ok); border-radius: var(--r); background: var(--ok-soft); }
 .askpil .f { flex: 1 1 220px; }
+.askpil.auftrag { border-color: var(--chart); background: var(--uebung-soft); }
 .quick button.swap, .quick button.akku { font-weight: 600; font-size: 15px; padding: 11px 14px; }
 table.verlauf input[type="time"] { width: 7.5em; padding: 5px 6px; }
 .askpil button.go { background: var(--ok); border-color: var(--ok); color: #fff; font-size: 16px; padding: 12px 18px; }
@@ -423,6 +424,7 @@ const MELDE_DEFAULT = [
 ];
 const meldestellen = () => Array.isArray(S.config.meldestellen) && S.config.meldestellen.length ? S.config.meldestellen : MELDE_DEFAULT;
 const telHref = t => "tel:" + String(t || "").replace(/[^\d+]/g, "");
+const AUFTRAG_MODI = ["Splitscreen (Wärmebild / Normalbild)", "Nur Wärmebild", "Nur Normalbild"];
 const ANFORDERUNG = ["Leitstelle SBK", "EvD", "Sonstige"];
 const PT = {
   start:  { l: "Startplatz",         s: "S", c: "#1F4E79" },
@@ -836,7 +838,7 @@ function route() {
   else { S.view = "einsaetze"; S.draft = null; S.dirty = false; }
   render(); window.scrollTo(0, 0);
 }
-function loadDraft(m) { if (!S.draft || S.draft.id !== m.id) { S.extraOpen = null; S.askPilot = null; S.askSwap = false; } S.draft = clone(m); S.dirty = false; S.baseStamp = m.updatedAt || null; S.remoteChanged = false; S.pendingHash = null; }
+function loadDraft(m) { if (!S.draft || S.draft.id !== m.id) { S.extraOpen = null; S.askPilot = null; S.askSwap = false; S.askAuftrag = null; } S.draft = clone(m); S.dirty = false; S.baseStamp = m.updatedAt || null; S.remoteChanged = false; S.pendingHash = null; }
 function newDraft(typ, hash) {
   const y = today().slice(0, 4);
   const n = S.missions.filter(m => m.typ === typ && (m.datum || "").startsWith(y)).length + 1;
@@ -1018,11 +1020,17 @@ function vProtokoll() {
     else if (st === "luft") q += `<button class="sm akku" data-act="akku">Akkuwechsel (Landung)</button><button class="sm swap" data-act="pilswap">⇄ Pilotenwechsel</button><button class="stop" data-act="logland">■ Flug beenden</button>`;
     else if (st === "pause") q += `<button class="go" data-act="resume">▶ Weiter mit neuem Akku · jetzt</button><button class="sm swap" data-act="pilswap">⇄ Pilotenwechsel</button><button class="stop" data-act="logland">■ Flug beenden</button>`;
     else q += `<button class="go" data-act="logstart">▶ Flug wieder aufnehmen</button>`;
-    q += ["Auftrag erhalten", "Lagemeldung an EvD/FüGr", "Funkverbindung gestört"].map(t => `<button class="sm" data-act="logquick" data-t="${esc(t)}">${esc(t)}</button>`).join("");
+    q += `<button class="sm swap" data-act="auftrag">Auftrag erhalten</button>`;
+    q += ["Lagemeldung an EvD/FüGr", "Funkverbindung gestört"].map(t => `<button class="sm" data-act="logquick" data-t="${esc(t)}">${esc(t)}</button>`).join("");
   }
   return `<section class="sec"><div class="sec-h"><h2><span class="k">02</span>Einsatzprotokoll</h2><span class="muted" style="font-size:13px">${log.length} Einträge</span></div>
     <p class="muted" style="font-size:13.5px">Hier steht nur, was die Drohne betrifft: Starts, Landungen, Pilotenwechsel, Aufträge und Feststellungen. Start und Landung tragen die Uhrzeit automatisch in den Flug ein. Jeder Eintrag wird sofort gespeichert, auch ohne Netz. Wie im Funkbuch wird nichts gelöscht: Fehler mit „Korrigieren“ als neuen Eintrag berichtigen.</p>
     ${last && !dis ? `<div class="crewline"><span class="muted">${{ luft: "In der Luft", pause: "Akkuwechsel – weiter mit", ende: "Beendet – zuletzt", boden: "" }[st]}:</span> ${curCrew(d).filter(c => c.memberId).map(c => `<b>${esc(ROLES_S[c.role])}</b> ${esc(memberName(c.memberId))}`).join(" · ") || `<span class="muted">Crew noch nicht eingetragen</span>`} <button class="ghost sm" data-act="tocrew" style="padding:2px 6px">Crew ändern</button></div>` : ""}
+    ${S.askAuftrag && !dis ? `<div class="askpil auftrag"><div style="display:grid;gap:8px;flex:1 1 100%">
+        <span class="wx-l">Neuer Auftrag – Bildmodus</span>
+        <div class="pick">${AUFTRAG_MODI.map(m => `<button type="button" data-act="amodus" data-v="${esc(m)}" aria-pressed="${S.askAuftrag.modus === m}">${esc(m)}</button>`).join("")}</div>
+        <label class="f"><span>Auftrag (frei)</span><input id="auftragText" placeholder="z. B. Waldstück nördlich Parkplatz absuchen, Person männlich, dunkle Jacke" value="${esc(S.askAuftrag.text || "")}"></label>
+        <div class="row"><button class="go" data-act="doauftrag">Auftrag eintragen</button><button class="ghost" data-act="noauftrag">Abbrechen</button></div></div></div>` : ""}
     ${S.askSwap && !dis && last ? `<div class="askpil"><label class="f"><span>Pilotenwechsel – neuer Pilot${st === "luft" ? " (Drohne bleibt in der Luft)" : " ab dem nächsten Start"}</span><select id="swapPilot">${memberOptions("").replace("– Person wählen –", "– neuen Piloten wählen –")}</select></label>
       <button class="go" data-act="dopilswap">⇄ Wechsel · jetzt</button><button class="ghost" data-act="noswap">Abbrechen</button></div>` : ""}
     ${S.askPilot && !dis ? `<div class="askpil"><label class="f"><span>Wer fliegt? (Pilot)</span><select id="startPilot">${memberOptions(S.askPilot.pre).replace("– Person wählen –", "– Pilot wählen –")}</select></label>
@@ -1473,6 +1481,7 @@ document.addEventListener("change", e => {
 document.addEventListener("keydown", e => {
   if (e.key === "Enter" && (e.target.id === "newMember" || e.target.id === "newMemberQ")) { e.preventDefault(); act("addmember", e.target); }
   if (e.key === "Enter" && /^newDrone/.test(e.target.id)) { e.preventDefault(); act("adddrone", e.target); }
+  if (e.key === "Enter" && e.target.id === "auftragText") { e.preventDefault(); act("doauftrag", e.target); }
   if (e.key === "Enter" && e.target.id === "logText") { e.preventDefault(); act("logadd", e.target); }
 });
 document.addEventListener("click", e => { const b = e.target.closest("[data-act]"); if (b) act(b.dataset.act, b); });
@@ -1559,6 +1568,15 @@ function act(a, b) {
       delete d.nextCrew; S.dirty = true; logPush("Wieder gestartet mit neuem Akku", "Start", t); break;
     }
     case "nostart": S.askPilot = null; render(); break;
+    case "auftrag": S.askAuftrag = { modus: "", text: "" }; S.askSwap = false; S.askPilot = null; render(); { const el = $("#auftragText"); if (el) el.focus(); } break;
+    case "amodus": { const tx = $("#auftragText"); S.askAuftrag.text = tx ? tx.value : ""; S.askAuftrag.modus = S.askAuftrag.modus === b.dataset.v ? "" : b.dataset.v; render(); break; }
+    case "noauftrag": S.askAuftrag = null; render(); break;
+    case "doauftrag": {
+      const tx = ($("#auftragText") || {}).value || "", mo = S.askAuftrag.modus;
+      if (!tx.trim() && !mo) { toast("Bitte Bildmodus wählen oder den Auftrag eintragen."); return; }
+      S.askAuftrag = null;
+      logPush(`Auftrag: ${[tx.trim(), mo ? "Bild: " + mo : ""].filter(Boolean).join(" – ")}`, "Auftrag", nowTime()); break;
+    }
     case "pilswap": S.askSwap = true; S.askPilot = null; render(); { const el = $("#swapPilot"); if (el) el.focus(); } break;
     case "noswap": S.askSwap = false; render(); break;
     case "dopilswap": {
