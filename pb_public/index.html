@@ -212,6 +212,9 @@ tfoot td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: 0;
 @media (max-width: 520px) { .log-in { grid-template-columns: 96px minmax(0, 1fr); } .log-in button { grid-column: 1 / -1; } }
 .quick { display: flex; gap: 8px; flex-wrap: wrap; }
 .quick button.go, .quick button.stop { font-size: 16px; padding: 12px 18px; }
+.mbar { display: inline-block; width: 46px; height: 6px; border-radius: 3px; background: var(--sunken); vertical-align: middle; margin-left: 6px; overflow: hidden; }
+.mbar i { display: block; height: 100%; background: var(--line); }
+.mbar i.ok { background: var(--ok); } .mbar i.warn { background: var(--warn); }
 .wx { display: flex; gap: 10px 22px; flex-wrap: wrap; }
 .wx-g { display: grid; gap: 5px; }
 .wx-l { font: 600 13px/1 var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
@@ -395,7 +398,9 @@ const WETTER = [
   { k: "wind", l: "Wind", o: ["Windstill", "Schwach", "Mäßig", "Stark"] },
   { k: "sicht", l: "Sicht", o: ["Gut", "Mäßig", "Schlecht"] },
 ];
-const ANBINDUNG = [["", "– wählen –"], ["evd", "Einsatzleiter vom Dienst (EvD)"], ["fg", "Führungsgruppe"], ["el", "Einsatzleitung vor Ort"], ["keine", "Keine (Übung/eigenständig)"]];
+const ANBINDUNG = [["", "– wählen –"], ["fg", "Führungsgruppe"], ["bildschirm", "Eigenständiger Bildschirm"], ["evd", "Direkt EvD"], ["el", "Sonstige Einsatzleitung"]];
+const ANB_LABEL = { fg: "Führungsgruppe", bildschirm: "Eigenständiger Bildschirm", evd: "Direkt EvD", el: "Sonstige Einsatzleitung", keine: "Keine" };
+const ANFORDERUNG = ["Leitstelle SBK", "EvD", "Sonstige"];
 const PT = {
   start:  { l: "Startplatz",         s: "S", c: "#1F4E79" },
   lande:  { l: "Landeplatz",         s: "L", c: "#2E7048" },
@@ -489,7 +494,10 @@ function computeHours(year) {
 function daysSince(d) { if (!d) return null; const t = new Date(d + "T12:00:00"); return Math.floor((Date.now() - t.getTime()) / 864e5); }
 
 /* ---------- Routine ---------- */
-function rule() { const g = Math.max(1, parseInt(S.config.routineFluege, 10) || 3), t = Math.max(1, parseInt(S.config.routineTage, 10) || 90); return { g, t }; }
+function rule() {
+  const num = (v, d) => { const n = parseInt(v, 10); return isFinite(n) && n > 0 ? n : d; };
+  return { m30: num(S.config.routineMin30, 15), m90: num(S.config.routineMin90, 60) };
+}
 function addDays(iso, n) { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function personEntries(id) {
   const out = [];
@@ -498,19 +506,22 @@ function personEntries(id) {
   })));
   return out.sort((a, b) => (b.datum + b.start).localeCompare(a.datum + a.start));
 }
-function within(e, days) { const d = daysSince(e.datum); return d != null && d >= 0 && d <= days; }
+function within(e, days) { const d = daysSince(e.datum); return d != null && d >= 0 && d < days; }
+function pilotMinAt(pil, ref, days) { const r0 = new Date(ref + "T12:00:00").getTime(); return pil.reduce((s, e) => { const d = Math.round((r0 - new Date(e.datum + "T12:00:00").getTime()) / 864e5); return d >= 0 && d < days ? s + e.min : s; }, 0); }
+function statusAt(pil, ref, R) { const a = pilotMinAt(pil, ref, 30), b = pilotMinAt(pil, ref, 90); return a >= R.m30 && b >= R.m90 ? "gruen" : b > 0 ? "gelb" : "rot"; }
 function routine(entries) {
-  const { g, t } = rule();
-  const pil = entries.filter(e => e.role === "pilot");
-  const inWin = pil.filter(e => within(e, t));
-  const n = inWin.length;
-  const status = !pil.length ? "keine" : n >= g ? "gruen" : n >= 1 ? "gelb" : "rot";
+  const R = rule(), pil = entries.filter(e => e.role === "pilot" && e.datum);
+  const t0 = today();
+  const a = pilotMinAt(pil, t0, 30), b = pilotMinAt(pil, t0, 90);
+  const status = !pil.length ? "keine" : statusAt(pil, t0, R);
   let until = null, untilLabel = "";
-  if (status === "gruen") { until = addDays(inWin[g - 1].datum, t); untilLabel = "Grün bis"; }
-  else if (status === "gelb") { until = addDays(inWin[0].datum, t + 1); untilLabel = "Rot ab"; }
-  const need = status === "gruen" ? 0 : g - n;
-  return { status, n, g, t, until, untilLabel, need, last: pil[0] ? pil[0].datum : null };
+  if (status === "gruen" || status === "gelb") {
+    for (let k = 1; k <= 91; k++) { const d = addDays(t0, k); const s = statusAt(pil, d, R); if (s !== status) { until = d; untilLabel = status === "gruen" ? "Grün bis" : "Rot ab"; if (status === "gruen") until = addDays(d, -1); break; } }
+  }
+  return { status, a, b, m30: R.m30, m90: R.m90, need30: Math.max(0, R.m30 - a), need90: Math.max(0, R.m90 - b), until, untilLabel, last: pil[0] ? pil[0].datum : null };
 }
+function sumBy(entries, f) { return entries.reduce((s, e) => f(e) ? { n: s.n + 1, min: s.min + e.min } : s, { n: 0, min: 0 }); }
+function einsatzCount(id, days) { return S.missions.filter(m => m.typ !== "uebung" && missionPeople(m).has(id) && (days == null || within(m, days))).length; }
 const RSTAT = { gruen: ["ok", "In Übung"], gelb: ["warn", "Auffrischen"], rot: ["bad", "Keine Routine"], keine: ["neutral", "Noch nie als Pilot"] };
 function rChip(st) { const [c, l] = RSTAT[st]; return `<span class="chip ${c}"><span class="dot ${st}"></span>${l}</span>`; }
 function personHash(id) { return /^[A-Za-z0-9-]+$/.test(id) ? "p-" + id : null; }
@@ -552,7 +563,7 @@ const Store = (() => {
     S.members = recs("members").map(r => ({ id: r.id, name: r.name || "", quali: r.quali || "", aktiv: r.aktiv !== false })).sort(byName);
     S.drones = recs("drones").map(r => ({ id: r.id, name: r.name || "", typ: r.modell || "", kennung: r.kennung || "", aktiv: r.aktiv !== false })).sort(byName);
     const cf = recs("config")[0];
-    S.config = cf ? { id: cf.id, einheit: cf.einheit || "", gruppe: cf.gruppe || "", routineFluege: cf.routineFluege || "", routineTage: cf.routineTage || "",
+    S.config = cf ? { id: cf.id, einheit: cf.einheit || "", gruppe: cf.gruppe || "", routineMin30: cf.routineMin30 || "", routineMin90: cf.routineMin90 || "",
       logoUrl: cf.logo && cf.collectionId ? pb.files.getURL(cf, cf.logo) : "" } : {};
     S.protokoll = recs("protokoll").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit, text: r.text, tag: r.tag || "", created: r.created || "", _pending: !!r._pending }))
       .sort((a, b) => (tmin(a.zeit) ?? 0) - (tmin(b.zeit) ?? 0) || String(a.created).localeCompare(String(b.created)));
@@ -922,9 +933,10 @@ function vEdit() {
     ${inp("Ende", "ende", { type: "time" })}
     ${inp(U ? "Thema" : "Stichwort", "stichwort", { cls: "w2", ph: U ? "z. B. Vermisstensuche Waldgebiet" : "z. B. Personensuche, Brand Gebäude" })}
     ${inp("Ort / Adresse", "ort", { cls: "w2", ph: "Straße, Ort" })}
-    ${inp("Anbindung über Verbindung an", "anbindung", { options: ANBINDUNG })}
+    ${inp("Anforderung durch", "anforderung", { options: [["", "– wählen –"], ...ANFORDERUNG.map(x => [x, x]), ...(d.anforderung && !ANFORDERUNG.includes(d.anforderung) ? [[d.anforderung, d.anforderung]] : [])], rr: true })}
+    ${d.anforderung === "Sonstige" ? inp("Anforderung – wer?", "anforderungText", { ph: "z. B. Polizei, Nachbarwehr" }) : ""}
+    ${inp("Anbindung an", "anbindung", { options: [...ANBINDUNG, ...(d.anbindung && !ANBINDUNG.some(a => a[0] === d.anbindung) ? [[d.anbindung, ANB_LABEL[d.anbindung] || d.anbindung]] : [])] })}
   </div>
-  <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis}>${esc(o)}</button>`).join("")}</div></div>`).join("")}</div>
   </section>`;
   // 2 Protokoll – Hauptarbeitsbereich des Technikers
   h += vProtokoll();
@@ -949,11 +961,10 @@ function vEdit() {
   </div></section>`;
   // Optional, eingeklappt
   const w = d.wetter || {};
-  const hasExtra = !!(d.anforderung || d.einsatzleiter || d.auftrag || d.luftraum || (d.positions || []).length);
+  const hasExtra = !!(d.einsatzleiter || d.auftrag || d.luftraum || (d.positions || []).length);
   if (S.extraOpen == null) S.extraOpen = hasExtra;
   h += `<details class="sec extra" id="extra" ${S.extraOpen ? "open" : ""}><summary><h2>Weitere Angaben <span class="muted" style="font-weight:600;font-size:14px;text-transform:none;letter-spacing:0">optional${hasExtra ? " · ausgefüllt" : ""}</span></h2></summary>
     <div class="grid">
-      ${inp(U ? "Übungsleiter" : "Anforderung durch", "anforderung", { ph: U ? "Name" : "z. B. ILS, Einsatzleitung, Polizei" })}
       ${inp(U ? "Verantwortlich UAS" : "Einsatzleiter vor Ort", "einsatzleiter", { ph: "Name / Funkrufname" })}
       ${inp(U ? "Übungsziel / Inhalte" : "Auftrag", "auftrag", { area: true, cls: "wf", ph: U ? "Was wurde geübt?" : "Was soll die Drohnengruppe erkunden/liefern?" })}
     </div>
@@ -982,9 +993,10 @@ function vProtokoll() {
     q += ["Akkuwechsel", "Lagemeldung an EvD/FüGr", "Auftrag erhalten", "Funkverbindung gestört"].map(t => `<button class="sm" data-act="logquick" data-t="${esc(t)}">${esc(t)}</button>`).join("");
   }
   return `<section class="sec"><div class="sec-h"><h2><span class="k">02</span>Einsatzprotokoll</h2><span class="muted" style="font-size:13px">${log.length} Einträge</span></div>
-    <p class="muted" style="font-size:13.5px">Start und Landung tragen die Uhrzeit automatisch in den Flug ein. Jeder Eintrag wird sofort gespeichert, auch ohne Netz. Wie im Funkbuch wird nichts gelöscht: Fehler mit „Korrigieren“ als neuen Eintrag berichtigen.</p>
+    <p class="muted" style="font-size:13.5px">Start und Landung tragen die Uhrzeit automatisch in den Flug ein. Wetter, Wind und Sicht antippen – jede Änderung wird mit Uhrzeit protokolliert. Jeder Eintrag wird sofort gespeichert, auch ohne Netz. Wie im Funkbuch wird nichts gelöscht: Fehler mit „Korrigieren“ als neuen Eintrag berichtigen.</p>
     ${last && !dis ? `<div class="crewline"><span class="muted">${last.landung ? "Nächster Flug mit" : "In der Luft"}:</span> ${(last.crew || []).filter(c => c.memberId).map(c => `<b>${esc(ROLES_S[c.role])}</b> ${esc(memberName(c.memberId))}`).join(" · ") || `<span class="muted">Crew noch nicht eingetragen</span>`} <button class="ghost sm" data-act="tocrew" style="padding:2px 6px">Crew ändern</button></div>` : ""}
     ${q ? `<div class="quick">${q}</div>` : ""}
+    <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-l="${g.l}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis ? "disabled" : ""}>${esc(o)}</button>`).join("")}</div></div>`).join("")}</div>
     ${dis ? "" : `<div class="log-in"><input type="time" id="logTime" class="mono" value="${nowTime()}" aria-label="Uhrzeit"><input id="logText" placeholder="Eintrag, z. B. Person im Planquadrat G2 gesichtet" aria-label="Protokolleintrag"><button class="primary" data-act="logadd">Eintragen</button></div>`}
     ${log.length ? `<div class="log">${log.slice().reverse().map(x => `<div class="log-row"><span class="tm">${esc(x.zeit)}</span><span class="tx">${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ""}${esc(x.text)}${x._pending ? ` <span class="muted" title="Noch nicht übertragen">⏳</span>` : ""}</span>${dis ? "<span></span>" : `<span class="row" style="gap:2px;flex-wrap:nowrap"><button class="ghost sm" data-act="logfix" data-id="${esc(x.id)}">Korrigieren</button>${isAdmin() ? (S.confirm === "l-" + x.id ? `<button class="sm danger" data-act="logdel" data-id="${esc(x.id)}">Löschen?</button>` : `<button class="ghost danger sm" data-act="askdel" data-k="l-${esc(x.id)}" aria-label="Eintrag löschen">✕</button>`) : ""}</span>`}</div>`).join("")}</div>` : `<span class="muted">Noch keine Einträge.</span>`}
   </section>`;
@@ -1207,46 +1219,58 @@ function vHours() {
 }
 
 function vRoutine() {
-  const { g, t } = rule();
+  const R = rule();
   const ppl = S.members.filter(m => m.aktiv !== false).map(m => { const e = personEntries(m.id); return { m, e, r: routine(e) }; });
   const ord = { gruen: 0, gelb: 1, rot: 2, keine: 3 };
-  ppl.sort((a, b) => ord[a.r.status] - ord[b.r.status] || byName(a.m, b.m));
+  ppl.sort((a, b) => ord[a.r.status] - ord[b.r.status] || b.r.b - a.r.b || byName(a.m, b.m));
   const cnt = s => ppl.filter(p => p.r.status === s).length;
   let h = `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Routine Piloten</h2>
-    <span class="muted" style="font-size:13px">Regel: mind. ${g} Pilotenflüge in ${t} Tagen · <a href="#stammdaten" style="color:inherit">ändern</a></span></div>
+    <span class="muted" style="font-size:13px">Regel: mind. ${R.m30} Min. in 30 Tagen und ${R.m90} Min. in 90 Tagen als Pilot · <a href="#stammdaten" style="color:inherit">ändern</a></span></div>
     <div class="routine-legend"><span><span class="dot gruen"></span>In Übung: ${cnt("gruen")}</span><span><span class="dot gelb"></span>Auffrischen: ${cnt("gelb")}</span><span><span class="dot rot"></span>Keine Routine: ${cnt("rot")}</span><span><span class="dot keine"></span>Noch nie als Pilot: ${cnt("keine")}</span></div>`;
   if (!ppl.length) return h + `<p class="muted">Sobald Mitglieder angelegt sind und Flüge erfasst werden, siehst du hier, wer aktuell genug fliegt.</p></section></div>`;
-  h += `<div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Status</th><th class="r">Pilot 30 T</th><th class="r">Pilot ${t} T</th><th class="r">Pilot 365 T</th><th class="r">Flugzeit ${t} T</th><th class="r">Spotter ${t} T</th><th>Letzter Pilotenflug</th><th>Gültigkeit</th></tr></thead><tbody>
-    ${ppl.map(({ m, e, r }) => { const s90 = roleSums(e, t), s30 = roleSums(e, 30), s365 = roleSums(e, 365);
-      return `<tr><td>${personLink(m.id, m.name)}</td><td>${rChip(r.status)}</td>
-      <td class="r">${(s30.pilot || {}).n || 0}</td><td class="r"><strong>${(s90.pilot || {}).n || 0}</strong><span class="muted"> / ${g}</span></td><td class="r">${(s365.pilot || {}).n || 0}</td>
-      <td class="r mono">${fmtH((s90.pilot || {}).min || 0)}</td><td class="r">${(s90.beob || {}).n || 0}</td>
+  const bar = (v, max) => `<span class="mbar"><i style="width:${Math.min(100, max ? v / max * 100 : 0)}%" class="${v >= max ? "ok" : v > 0 ? "warn" : ""}"></i></span>`;
+  h += `<div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Status</th><th class="r">Pilot 30 T</th><th class="r">Pilot 90 T</th><th class="r">Pilot 12 M<br><span style="font-weight:500">Einsatz / Übung</span></th><th class="r">Einsätze 12 M<br><span style="font-weight:500">dabei / als Pilot</span></th><th>Letzter Pilotenflug</th><th>Ändert sich</th></tr></thead><tbody>
+    ${ppl.map(({ m, e, r }) => {
+      const p12 = e.filter(x => x.role === "pilot" && within(x, 365));
+      const pe = sumBy(p12, x => x.typ !== "uebung"), pu = sumBy(p12, x => x.typ === "uebung");
+      const einsPilot = new Set(p12.filter(x => x.typ !== "uebung").map(x => x.missionId)).size;
+      const onlyU = p12.length && !pe.n;
+      return `<tr><td>${personLink(m.id, m.name)}${onlyU ? ` <span class="chip neutral" title="In den letzten 12 Monaten nur in Übungen als Pilot geflogen">nur Übung</span>` : ""}</td><td>${rChip(r.status)}</td>
+      <td class="r mono">${fmtH(r.a)} ${bar(r.a, r.m30)}</td>
+      <td class="r mono">${fmtH(r.b)} ${bar(r.b, r.m90)}</td>
+      <td class="r mono">${fmtH(pe.min)} <span class="muted">/</span> ${fmtH(pu.min)}</td>
+      <td class="r">${einsatzCount(m.id, 365)} <span class="muted">/</span> ${einsPilot}</td>
       <td>${r.last ? `<span class="mono">${fmtDate(r.last)}</span> <span class="muted">(${daysSince(r.last)} T)</span>` : `<span class="muted">–</span>`}</td>
-      <td>${r.until ? `<span class="muted">${r.untilLabel}</span> <span class="mono">${fmtDate(r.until)}</span>` : r.status === "rot" ? `<span class="muted">${r.need} Flüge nötig</span>` : `<span class="muted">–</span>`}</td></tr>`; }).join("")}
-  </tbody></table></div></section></div>`;
+      <td>${r.until ? `<span class="muted">${r.untilLabel}</span> <span class="mono">${fmtDate(r.until)}</span>` : r.status === "rot" ? `<span class="muted">${fmtH(Math.max(r.need30, r.need90))} h fehlen</span>` : `<span class="muted">–</span>`}</td></tr>`; }).join("")}
+  </tbody></table></div>
+  <p class="muted" style="font-size:13px">Grün: beide Mindestzeiten erfüllt. Gelb: im 90-Tage-Zeitraum geflogen, aber zu wenig. Rot: in 90 Tagen nicht als Pilot geflogen. Einsatz- und Übungsflüge zählen gleich. „nur Übung“ markiert, wer in 12 Monaten keinen Einsatzflug als Pilot hatte.</p>
+  </section></div>`;
   return h;
 }
 function vPerson() {
   const m = S.members.find(x => x.id === S.personId);
   if (!m) return `<div class="sheet empty"><h3>${S.loaded.members ? "Person nicht gefunden" : "Wird geladen …"}</h3><p><a href="#stunden">Zur Stundenübersicht</a></p></div>`;
-  const e = personEntries(m.id), r = routine(e), { t } = rule();
+  const e = personEntries(m.id), r = routine(e), t = 90;
   const all = roleSums(e), win = roleSums(e, t), y365 = roleSums(e, 365);
   const ms = S.missions.filter(x => missionPeople(x).has(m.id));
+  const pilAll = e.filter(x => x.role === "pilot"), pe = sumBy(pilAll, x => x.typ !== "uebung"), pu = sumBy(pilAll, x => x.typ === "uebung");
   const dienst = ms.reduce((s, x) => s + dur(x.beginn, x.ende), 0);
   let h = `<div class="head"><div>
     <div class="row" style="gap:8px;margin-bottom:6px"><a href="#stunden" class="btn" style="padding:6px 10px;font-size:13px">← Stunden</a>${rChip(r.status)}${m.aktiv === false ? `<span class="chip neutral">Inaktiv</span>` : ""}</div>
     <h1>${esc(m.name)}</h1><p class="sub">${esc(m.quali || "Keine Qualifikation hinterlegt")}</p></div>
     <div class="row"><button class="primary" data-act="ppdf" ${S.dl ? "" : "disabled"}>Tätigkeitsnachweis als PDF</button></div></div>`;
   let msg;
-  if (r.status === "gruen") msg = `${r.n} Pilotenflüge in den letzten ${t} Tagen – in Übung bis ${fmtDate(r.until)}, sofern bis dahin kein weiterer Flug dazukommt.`;
-  else if (r.status === "gelb") msg = `${r.n} von ${r.g} Pilotenflügen in den letzten ${t} Tagen. Noch ${r.need} ${r.need === 1 ? "Flug" : "Flüge"} bis „In Übung“; ohne weiteren Flug ab ${fmtDate(r.until)} keine Routine mehr.`;
-  else if (r.status === "rot") msg = `Letzter Pilotenflug am ${fmtDate(r.last)} (vor ${daysSince(r.last)} Tagen). Für „In Übung“ sind ${r.g} Flüge in ${t} Tagen nötig – gut für die nächste Übung einplanen.`;
+  const fehlt = [r.need30 ? `${r.need30} Min. in den nächsten Tagen (30-Tage-Ziel)` : "", r.need90 ? `${r.need90} Min. für das 90-Tage-Ziel` : ""].filter(Boolean).join(" und ");
+  if (r.status === "gruen") msg = `${fmtH(r.a)} h in 30 Tagen und ${fmtH(r.b)} h in 90 Tagen als Pilot – ${r.until ? `in Übung bis ${fmtDate(r.until)}, sofern bis dahin kein weiterer Flug dazukommt.` : "in Übung."}`;
+  else if (r.status === "gelb") msg = `${fmtH(r.a)} h in 30 Tagen, ${fmtH(r.b)} h in 90 Tagen. Es fehlen noch ${fehlt}.${r.until ? ` Ohne weiteren Flug ab ${fmtDate(r.until)} keine Routine mehr.` : ""}`;
+  else if (r.status === "rot") msg = `Letzter Pilotenflug am ${fmtDate(r.last)} (vor ${daysSince(r.last)} Tagen). Für „In Übung“ braucht es ${r.m30} Min. in 30 und ${r.m90} Min. in 90 Tagen – gut für die nächste Übung einplanen.`;
   else msg = "Bisher kein Flug als Pilot erfasst.";
   h += `<div class="banner ${r.status === "gruen" ? "info" : "warn"}"><span class="dot ${r.status}"></span>${esc(msg)}</div>`;
   h += `<div class="stats">
-    <div class="stat"><div class="l">Pilotenflüge ${t} Tage</div><div class="v">${(win.pilot || {}).n || 0} <small>/ ${r.g}</small></div></div>
-    <div class="stat"><div class="l">Pilotenflüge 365 Tage</div><div class="v">${(y365.pilot || {}).n || 0}</div></div>
-    <div class="stat"><div class="l">Flugzeit als Pilot gesamt</div><div class="v">${fmtH((all.pilot || {}).min || 0)} <small>h</small></div></div>
+    <div class="stat"><div class="l">Pilot 30 Tage</div><div class="v">${fmtH(r.a)} <small>/ ${fmtH(r.m30)} h</small></div></div>
+    <div class="stat"><div class="l">Pilot 90 Tage</div><div class="v">${fmtH(r.b)} <small>/ ${fmtH(r.m90)} h</small></div></div>
+    <div class="stat"><div class="l">Pilot im Einsatz gesamt</div><div class="v">${fmtH(pe.min)} <small>h · ${pe.n} Flüge</small></div></div>
+    <div class="stat"><div class="l">Pilot in Übung gesamt</div><div class="v">${fmtH(pu.min)} <small>h · ${pu.n} Flüge</small></div></div>
     <div class="stat"><div class="l">Einsätze / Übungen</div><div class="v">${ms.filter(x => x.typ !== "uebung").length} <small>/</small> ${ms.filter(x => x.typ === "uebung").length}</div></div>
     <div class="stat"><div class="l">Dienstzeit gesamt</div><div class="v">${fmtH(dienst)} <small>h</small></div></div></div>`;
   h += `<div class="sheet"><section class="sec"><h2>Tätigkeiten nach Rolle</h2><div class="tbl-wrap"><table><thead><tr><th>Rolle</th><th class="r">Flüge ${t} T</th><th class="r">Zeit ${t} T</th><th class="r">Flüge 365 T</th><th class="r">Flüge gesamt</th><th class="r">Zeit gesamt</th><th>Zuletzt</th></tr></thead><tbody>
@@ -1274,8 +1298,8 @@ function vStamm() {
         <span class="muted" style="font-size:13px">${S.online ? "PNG oder JPG bis 5 MB, am besten mit transparentem bzw. weißem Hintergrund." : "Das Logo lässt sich nur mit Internetverbindung ändern."}</span></div></div>
     <p class="muted" style="font-size:13px">Name und Logo erscheinen im Kopf der App und auf jedem PDF-Bericht.</p></section>
   <section class="sec"><h2>Routine-Regel</h2>
-    <div class="rule-in">Grün („In Übung“) ab <input id="cfg-rf" data-cfg="routineFluege" inputmode="numeric" class="mono" value="${esc(S.config.routineFluege || "3")}" ${dis}> Flügen als Pilot in den letzten <input id="cfg-rt" data-cfg="routineTage" inputmode="numeric" class="mono" value="${esc(S.config.routineTage || "90")}" ${dis}> Tagen.</div>
-    <p class="muted" style="font-size:13px">Gelb bei mindestens einem Flug im Zeitraum, rot bei keinem. Eine interne Orientierung für die Übungsplanung – maßgeblich bleiben eure Dienstvorschriften.</p></section></div>`;
+    <div class="rule-in">Grün („In Übung“) bei mindestens <input id="cfg-m30" data-cfg="routineMin30" inputmode="numeric" class="mono" value="${esc(rule().m30)}" ${dis}> Minuten Flugzeit als Pilot in den letzten 30 Tagen <strong>und</strong> <input id="cfg-m90" data-cfg="routineMin90" inputmode="numeric" class="mono" value="${esc(rule().m90)}" ${dis}> Minuten in den letzten 90 Tagen.</div>
+    <p class="muted" style="font-size:13px">Einsatz- und Übungsflüge zählen zusammen. Gelb: im 90-Tage-Zeitraum geflogen, aber zu wenig. Rot: in 90 Tagen nicht als Pilot geflogen. Eine interne Orientierung für die Übungsplanung – maßgeblich bleiben eure Dienstvorschriften.</p></section></div>`;
   // Mitglieder
   h += `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Mitglieder</h2><span class="muted">${S.members.filter(m => m.aktiv !== false).length} aktiv</span></div>
     ${dis ? "" : `<div class="row"><input id="newMember" placeholder="Vor- und Nachname" style="flex:2 1 200px;width:auto"><input id="newMemberQ" placeholder="Qualifikation, z. B. A1/A3 + A2" style="flex:2 1 200px;width:auto"><button class="primary" data-act="addmember">Hinzufügen</button></div>`}
@@ -1371,7 +1395,7 @@ document.addEventListener("change", e => {
   if (t.dataset.filter === "jahr") { S.filter.jahr = t.value; render(); return; }
   if (t.hasAttribute("data-hyear")) { S.hYear = t.value; render(); return; }
   if (t.dataset.cfg && isAdmin()) {
-    let v = t.value.trim(); if (/^routine/.test(t.dataset.cfg)) { v = parseInt(v, 10); if (!(v >= 1)) { toast("Bitte eine Zahl ab 1 eingeben."); render(); return; } }
+    let v = t.value.trim(); if (/^routine/.test(t.dataset.cfg)) { v = parseInt(v, 10); if (!(v >= 1)) { toast("Bitte eine Zahl ab 1 (Minuten) eingeben."); render(); return; } }
     Store.upsert("config", S.config.id || pbId(), { [t.dataset.cfg]: v }).then(() => toast("Gespeichert")); return;
   }
   if (t.dataset.mem && isAdmin()) { const v = t.value.trim(); if (t.dataset.field === "name" && !v) { toast("Name darf nicht leer sein."); render(); return; } Store.upsert("members", t.dataset.mem, { [t.dataset.field]: v }).then(() => toast("Gespeichert")); return; }
@@ -1454,7 +1478,12 @@ function act(a, b) {
     case "logquick": { const tx = $("#logText"); const extra = tx && tx.value.trim(); logPush(extra ? `${b.dataset.t}: ${extra}` : b.dataset.t, "", ($("#logTime") || {}).value); if (tx) tx.value = ""; break; }
     case "logadd": { const tx = $("#logText"); const v = tx.value.trim(); if (!v) { toast("Bitte einen Text eingeben."); tx.focus(); return; } logPush(v, "", $("#logTime").value); break; }
     case "logdel": S.confirm = null; Store.del("protokoll", b.dataset.id); render(); break;
-    case "pick": { if (ro()) return; const cur = getPath(d, b.dataset.b); setPath(d, b.dataset.b, cur === b.dataset.v ? "" : b.dataset.v); markDirty(); render(); break; }
+    case "pick": {
+      if (ro()) return; const cur = getPath(d, b.dataset.b), nv = cur === b.dataset.v ? "" : b.dataset.v;
+      setPath(d, b.dataset.b, nv); S.dirty = true;
+      if (nv && /^wetter\./.test(b.dataset.b)) logPush(`${b.dataset.l}: ${nv}`, "Wetter", nowTime()); else { markDirty(); render(); }
+      break;
+    }
     case "tocrew": { const el = document.getElementById("sec-fluege"); if (el) el.scrollIntoView({ behavior: "smooth" }); break; }
     case "pdf": reportPDF(); break;
     case "ppdf": personPDF(); break;
@@ -1590,7 +1619,8 @@ async function reportPDF() {
   kv(c, [
     [U ? "Thema" : "Stichwort", m.stichwort, 2], ["Datum", fmtDate(m.datum)],
     ["Ort / Adresse", m.ort, 2], [U ? "Zeitraum" : "Alarm / Beginn – Ende", `${m.beginn || "–"} – ${m.ende || "–"} Uhr` + (m.ende ? ` (${fmtH(dur(m.beginn, m.ende))} h)` : "")],
-    [U ? "Übungsleiter" : "Anforderung durch", m.anforderung], [U ? "Verantwortlich UAS" : "Einsatzleiter vor Ort", m.einsatzleiter], ["Anbindung an", (ANBINDUNG.find(a => a[0] && a[0] === m.anbindung) || ["", "–"])[1]], ["Flugzeit gesamt", `${fmtH(missionFlightMin(m))} h in ${(m.flights || []).length} Flug/Flügen`],
+    ["Anforderung durch", m.anforderung === "Sonstige" && m.anforderungText ? "Sonstige: " + m.anforderungText : m.anforderung], [U ? "Verantwortlich UAS" : "Einsatzleiter vor Ort", m.einsatzleiter], ["Anbindung an", ANB_LABEL[m.anbindung] || m.anbindung || "–"], ["Flugzeit gesamt", `${fmtH(missionFlightMin(m))} h in ${(m.flights || []).length} Flug/Flügen`],
+    ["Wetter (zuletzt)", [(m.wetter || {}).lage, (m.wetter || {}).wind ? "Wind " + m.wetter.wind : "", (m.wetter || {}).sicht ? "Sicht " + m.wetter.sicht : ""].filter(Boolean).join(", ")],
   ]);
   if (m.auftrag) para(c, U ? "Übungsziel / Inhalte" : "Auftrag", m.auftrag);
   const plog = protoFor(m.id);
@@ -1608,10 +1638,10 @@ async function reportPDF() {
     d.setFont("helvetica", "normal"); d.setFontSize(7.5); d.setTextColor(...P.muted); d.text("LAGESKIZZE (NORDEN OBEN, RASTER IN METERN, NICHT MASSSTABSGETREU GEDRUCKT)", P.ML, c.y); c.y += 2;
     d.addImage(cv.toDataURL("image/png"), "PNG", P.ML, c.y, P.CW, ih); d.setDrawColor(...P.line); d.rect(P.ML, c.y, P.CW, ih); c.y += ih + 5;
   }
-  if (Object.values(w).some(Boolean) || m.luftraum) {
-  sec(c, "Wetter & Luftraum");
+  if (m.luftraum) {
+  sec(c, "Luftraum");
   const unit = (v, u) => v && /^[\d.,]+$/.test(String(v).trim()) ? v + " " + u : v;
-  if (Object.values(w).some(Boolean)) kv(c, [["Wetter", w.lage], ["Wind", unit(w.wind, "m/s")], ["Sicht", w.sicht]], 3);
+
   if (m.luftraum) para(c, "Luftraum / Geozonen / Freigaben", m.luftraum);
   }
   const people = [...missionPeople(m)];
@@ -1660,12 +1690,14 @@ async function hoursPDF() {
 async function personPDF() {
   const m = S.members.find(x => x.id === S.personId); if (!m) return;
   const c = pdfNew(); if (!c) return; const logo = await loadLogo();
-  const e = personEntries(m.id), r = routine(e), { t } = rule(), all = roleSums(e), win = roleSums(e, t);
+  const e = personEntries(m.id), r = routine(e), t = 90, all = roleSums(e), win = roleSums(e, t);
+  const pilAll = e.filter(x => x.role === "pilot"), pe = sumBy(pilAll, x => x.typ !== "uebung"), pu = sumBy(pilAll, x => x.typ === "uebung");
   const ms = S.missions.filter(x => missionPeople(x).has(m.id));
   pdfHeader(c, "Tätigkeitsnachweis UAS", unitLabel(), [m.name, "Stand " + fmtDate(today())], logo);
   sec(c, "Person & Routine");
   kv(c, [["Name", m.name], ["Qualifikation", m.quali], ["Status", RSTAT[r.status][1]],
-    [`Pilotenflüge ${t} Tage`, `${(win.pilot || {}).n || 0} von ${r.g}`], ["Letzter Pilotenflug", r.last ? fmtDate(r.last) : "–"], [r.untilLabel || "Gültigkeit", r.until ? fmtDate(r.until) : "–"],
+    ["Pilot 30 Tage", `${fmtH(r.a)} h (Ziel ${fmtH(r.m30)} h)`], ["Pilot 90 Tage", `${fmtH(r.b)} h (Ziel ${fmtH(r.m90)} h)`], [r.untilLabel || "Gültigkeit", r.until ? fmtDate(r.until) : "–"],
+    ["Pilot im Einsatz", `${fmtH(pe.min)} h (${pe.n} Flüge)`], ["Pilot in Übung", `${fmtH(pu.min)} h (${pu.n} Flüge)`], ["Letzter Pilotenflug", r.last ? fmtDate(r.last) : "–"],
     ["Einsätze", String(ms.filter(x => x.typ !== "uebung").length)], ["Übungen", String(ms.filter(x => x.typ === "uebung").length)], ["Dienstzeit gesamt", fmtH(ms.reduce((s, x) => s + dur(x.beginn, x.ende), 0)) + " h"]]);
   sec(c, "Tätigkeiten nach Rolle");
   table(c, ["Rolle", `Flüge ${t} T`, `Zeit ${t} T`, "Flüge gesamt", "Zeit gesamt"], ROLES.map(o => [o.l, String((win[o.k] || {}).n || 0), fmtH((win[o.k] || {}).min || 0), String((all[o.k] || {}).n || 0), fmtH((all[o.k] || {}).min || 0)]), [60, 28, 28, 30, 32], { right: [1, 2, 3, 4] });
