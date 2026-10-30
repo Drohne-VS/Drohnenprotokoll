@@ -409,9 +409,10 @@ const WETTER = [
 const ANBINDUNG = [["", "– wählen –"], ["fg", "Führungsgruppe"], ["bildschirm", "Eigenständiger Bildschirm"], ["evd", "Direkt EvD"], ["el", "Sonstige Einsatzleitung"]];
 const ANB_LABEL = { fg: "Führungsgruppe", bildschirm: "Eigenständiger Bildschirm", evd: "Direkt EvD", el: "Sonstige Einsatzleitung", keine: "Keine" };
 const MELDE_DEFAULT = [
-  { name: "Leitstelle SBK", tel: "" },
-  { name: "Polizeirevier Villingen", tel: "07721 601-0" },
-  { name: "Polizeirevier Schwenningen", tel: "07720 8500-0" },
+  { name: "Leitstelle SBK (Funk oder Telefon)", tel: "07721 20690" },
+  { name: "Polizeirevier Villingen", tel: "07721 6010" },
+  { name: "Polizeirevier Schwenningen", tel: "07720 85000" },
+  { name: "Flugplatz Schwenningen", tel: "07720 5823" },
 ];
 const meldestellen = () => Array.isArray(S.config.meldestellen) && S.config.meldestellen.length ? S.config.meldestellen : MELDE_DEFAULT;
 const telHref = t => "tel:" + String(t || "").replace(/[^\d+]/g, "");
@@ -1322,7 +1323,7 @@ function vStamm() {
     <div class="rule-in">Grün („In Übung“) bei mindestens <input id="cfg-m30" data-cfg="routineMin30" inputmode="numeric" class="mono" value="${esc(rule().m30)}" ${dis}> Minuten Flugzeit als Pilot in den letzten 30 Tagen <strong>und</strong> <input id="cfg-m90" data-cfg="routineMin90" inputmode="numeric" class="mono" value="${esc(rule().m90)}" ${dis}> Minuten in den letzten 90 Tagen.</div>
     <p class="muted" style="font-size:13px">Einsatz- und Übungsflüge zählen zusammen. Gelb: im 90-Tage-Zeitraum geflogen, aber zu wenig. Rot: in 90 Tagen nicht als Pilot geflogen. Eine interne Orientierung für die Übungsplanung – maßgeblich bleiben eure Dienstvorschriften.</p></section>
   <section class="sec"><h2>Meldestellen im Protokoll</h2>
-    <p class="muted" style="font-size:13px">Diese Stellen erscheinen im Einsatzprotokoll zum Abhaken („informiert über den Flug“). Bitte die Telefonnummern prüfen – die Nummern der Polizeireviere stammen aus öffentlichen Telefonverzeichnissen, die Nummer der Leitstelle bitte selbst eintragen.</p>
+    <p class="muted" style="font-size:13px">Diese Stellen erscheinen im Einsatzprotokoll zum Abhaken („informiert über den Flug“). Ein Tipp im Protokoll hakt die Stelle ab und schreibt die Uhrzeit mit. Die Nummer lässt sich auf Handy und Tablet direkt antippen.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Bezeichnung</th><th>Telefon</th><th></th></tr></thead><tbody>
     ${meldestellen().map((s, i) => `<tr><td><input id="ms-n-${i}" data-melde="${i}" data-field="name" value="${esc(s.name)}" ${dis}></td><td><input id="ms-t-${i}" class="mono" data-melde="${i}" data-field="tel" value="${esc(s.tel || "")}" placeholder="Nummer eintragen" ${dis}></td>
       <td class="r">${dis ? "" : S.confirm === "ms-" + i ? `<span class="confirm">Entfernen? <button class="sm danger" data-act="delmelde" data-i="${i}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="ms-${i}">Entfernen</button>`}</td></tr>`).join("")}
