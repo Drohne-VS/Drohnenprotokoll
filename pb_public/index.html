@@ -229,6 +229,11 @@ a.tel { font-family: var(--f-mono); font-size: 13.5px; color: var(--chart); whit
 .pick a.tel { font-family: var(--f-mono); font-size: 13px; color: var(--chart); margin: 0 10px 0 4px; white-space: nowrap; }
 .pick button { padding: 7px 11px; font-weight: 500; font-size: 13.5px; background: var(--bg); }
 .pick button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+select.req { border-color: var(--accent); border-width: 2px; }
+.flight.nopil { border-color: var(--accent); }
+.askpil { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; padding: 12px; border: 2px solid var(--ok); border-radius: var(--r); background: var(--ok-soft); }
+.askpil .f { flex: 1 1 220px; }
+.askpil button.go { background: var(--ok); border-color: var(--ok); color: #fff; font-size: 16px; padding: 12px 18px; }
 .crewline { font-size: 14px; display: flex; gap: 4px 10px; flex-wrap: wrap; align-items: baseline; }
 .crewline a { color: var(--chart); font-size: 13px; }
 details.extra > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; }
@@ -829,7 +834,7 @@ function route() {
   else { S.view = "einsaetze"; S.draft = null; S.dirty = false; }
   render(); window.scrollTo(0, 0);
 }
-function loadDraft(m) { if (!S.draft || S.draft.id !== m.id) S.extraOpen = null; S.draft = clone(m); S.dirty = false; S.baseStamp = m.updatedAt || null; S.remoteChanged = false; S.pendingHash = null; }
+function loadDraft(m) { if (!S.draft || S.draft.id !== m.id) { S.extraOpen = null; S.askPilot = null; } S.draft = clone(m); S.dirty = false; S.baseStamp = m.updatedAt || null; S.remoteChanged = false; S.pendingHash = null; }
 function newDraft(typ, hash) {
   const y = today().slice(0, 4);
   const n = S.missions.filter(m => m.typ === typ && (m.datum || "").startsWith(y)).length + 1;
@@ -1016,7 +1021,8 @@ function vProtokoll() {
   return `<section class="sec"><div class="sec-h"><h2><span class="k">02</span>Einsatzprotokoll</h2><span class="muted" style="font-size:13px">${log.length} Einträge</span></div>
     <p class="muted" style="font-size:13.5px">Start und Landung tragen die Uhrzeit automatisch in den Flug ein. Wetter, Wind und Sicht antippen – jede Änderung wird mit Uhrzeit protokolliert. Jeder Eintrag wird sofort gespeichert, auch ohne Netz. Wie im Funkbuch wird nichts gelöscht: Fehler mit „Korrigieren“ als neuen Eintrag berichtigen.</p>
     ${last && !dis ? `<div class="crewline"><span class="muted">${last.landung ? "Nächster Flug mit" : "In der Luft"}:</span> ${(last.crew || []).filter(c => c.memberId).map(c => `<b>${esc(ROLES_S[c.role])}</b> ${esc(memberName(c.memberId))}`).join(" · ") || `<span class="muted">Crew noch nicht eingetragen</span>`} <button class="ghost sm" data-act="tocrew" style="padding:2px 6px">Crew ändern</button></div>` : ""}
-    ${q ? `<div class="quick">${q}</div>` : ""}
+    ${S.askPilot && !dis ? `<div class="askpil"><label class="f"><span>Wer fliegt Flug ${S.askPilot.existing ? n : n + 1}? (Pilot)</span><select id="startPilot">${memberOptions(S.askPilot.pre).replace("– Person wählen –", "– Pilot wählen –")}</select></label>
+      <button class="go" data-act="logstart" data-pick="1" ${S.askPilot.existing ? 'data-existing="1"' : ""}>▶ Starten · jetzt</button><button class="ghost" data-act="nostart">Abbrechen</button></div>` : q ? `<div class="quick">${q}</div>` : ""}
     <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-l="${g.l}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis ? "disabled" : ""}>${esc(o)}</button>`).join("")}</div></div>`).join("")}
     </div>
     ${dis ? "" : `<div class="log-in"><input type="time" id="logTime" class="mono" value="${nowTime()}" aria-label="Uhrzeit"><input id="logText" placeholder="Eintrag, z. B. Person im Planquadrat G2 gesichtet" aria-label="Protokolleintrag"><button class="primary" data-act="logadd">Eintragen</button></div>`}
@@ -1052,7 +1058,8 @@ function posRow(p, i) {
 }
 function flightBox(f, i) {
   const dis = ro() ? "disabled" : "";
-  return `<div class="flight"><div class="flight-h"><span class="fn">Flug ${i + 1}</span>
+  const noPil = !(f.crew || []).some(c => c.role === "pilot" && c.memberId);
+  return `<div class="flight ${noPil ? "nopil" : ""}" id="flight-${i}"><div class="flight-h"><span class="fn">Flug ${i + 1}</span>${noPil ? `<span class="chip bad">Pilot fehlt</span>` : ""}
       <span class="muted" style="font-size:13px">${esc((f.crew || []).filter(c => c.memberId).map(c => `${ROLES_S[c.role] || c.role}: ${memberName(c.memberId)}`).join(" · "))}</span>
       <span class="dur" id="fd-${i}">${fmtH(flightMin(f))} h</span>
       ${dis ? "" : `<button class="ghost danger sm" data-act="delflight" data-i="${i}" aria-label="Flug ${i + 1} entfernen">✕</button>`}</div>
@@ -1064,7 +1071,7 @@ function flightBox(f, i) {
     </div>
     <div class="crew"><h3>Crew</h3>${ROLES.map(r => { const c = (f.crew || []).find(x => x.role === r.k) || {}; return `<div class="slot">
         <div class="sl">${r.l}<small>${r.hint}</small></div>
-        <select id="fl-${i}-r-${r.k}" data-crew="${i}" data-role="${r.k}" ${dis}>${memberOptions(c.memberId).replace("– Person wählen –", "– nicht besetzt –")}</select></div>`; }).join("")}
+        <select id="fl-${i}-r-${r.k}" data-crew="${i}" data-role="${r.k}" ${dis} ${r.k === "pilot" ? `class="${c.memberId ? "" : "req"}" required` : ""}>${r.k === "pilot" ? memberOptions(c.memberId).replace("– Person wählen –", "– Pilot wählen (Pflicht) –") : memberOptions(c.memberId).replace("– Person wählen –", "– nicht besetzt –")}</select></div>`; }).join("")}
       ${crewNote(f)}</div>
     <label class="f"><span>Bemerkung zum Flug</span><input id="fl-${i}-b" data-b="flights.${i}.bemerkung" value="${esc(f.bemerkung || "")}" placeholder="z. B. Suchmuster Raster, Wärmebild, Abbruch wegen Wind" ${dis}></label>
   </div></div>`;
@@ -1410,6 +1417,7 @@ document.addEventListener("change", e => {
   }
   if (t.dataset.crew != null && S.draft) {
     const f = S.draft.flights[+t.dataset.crew]; const k = t.dataset.role;
+    if (k === "pilot" && !t.value && (f.crew || []).some(c => c.role === "pilot" && c.memberId)) { toast("Der Pilot kann nicht leer bleiben – bitte eine andere Person wählen."); render(); return; }
     f.crew = (f.crew || []).filter(c => c.role !== k); if (t.value) f.crew.push({ memberId: t.value, role: k });
     f.crew.sort((a, b) => ROLES.findIndex(r => r.k === a.role) - ROLES.findIndex(r => r.k === b.role));
     markDirty(); render(); return;
@@ -1456,7 +1464,11 @@ function act(a, b) {
     case "delete": S.confirm = "delete"; actions(); break;
     case "nodelete": S.confirm = null; actions(); break;
     case "dodelete": { const id = d.id; S.dirty = false; S.draft = null; S.confirm = null; Store.del("missions", id); toast("Bericht gelöscht"); location.hash = "einsaetze"; break; }
-    case "close": S.confirm = "close"; actions(); break;
+    case "close": {
+      const miss = (d.flights || []).findIndex(f => !(f.crew || []).some(c => c.role === "pilot" && c.memberId));
+      if (miss >= 0) { toast(`Flug ${miss + 1} hat noch keinen Piloten. Bitte eintragen, dann abschließen.`); const el = document.getElementById("flight-" + miss); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+      S.confirm = "close"; actions(); break;
+    }
     case "doclose": S.confirm = null; d.status = "abgeschlossen"; if (!d.ende) d.ende = nowTime(); saveDraft(isTablet() ? "einsaetze" : undefined).then(() => toast("Bericht abgeschlossen")); break;
     case "reopen": d.status = "entwurf"; saveDraft(); break;
     case "logout": S.confirm = "logout"; header(); break;
@@ -1500,15 +1512,21 @@ function act(a, b) {
     }
     case "delflight": d.flights.splice(+b.dataset.i, 1); markDirty(); render(); break;
     case "logstart": {
+      const prev = d.flights[d.flights.length - 1];
+      const cur = b.dataset.existing ? prev : null;
+      const crew0 = cur ? (cur.crew || []) : prev ? prev.crew || [] : [];
+      let pilot = (crew0.find(c => c.role === "pilot" && c.memberId) || {}).memberId || "";
+      if (b.dataset.pick) { pilot = ($("#startPilot") || {}).value || ""; if (!pilot) { toast("Bitte zuerst den Piloten wählen."); return; } }
+      if (!b.dataset.pick) { S.askPilot = { existing: !!b.dataset.existing, pre: pilot }; render(); const el = $("#startPilot"); if (el) el.focus(); return; }
+      S.askPilot = null;
       const t = nowTime(); let f;
-      if (b.dataset.existing) { f = d.flights[d.flights.length - 1]; f.start = t; }
-      else { const prev = d.flights[d.flights.length - 1];
-        f = { id: uid("f"), droneId: prev ? prev.droneId : (S.drones.filter(x => x.aktiv !== false).length === 1 ? S.drones.find(x => x.aktiv !== false).id : ""), start: t, landung: "", maxHoehe: "", akkus: "1", crew: prev ? clone(prev.crew) : [], bemerkung: "" };
-        d.flights.push(f); }
-      const pil = (f.crew || []).find(c => c.role === "pilot" && c.memberId);
+      if (cur) { f = cur; f.start = t; }
+      else { f = { id: uid("f"), droneId: prev ? prev.droneId : (S.drones.filter(x => x.aktiv !== false).length === 1 ? S.drones.find(x => x.aktiv !== false).id : ""), start: t, landung: "", akkus: "1", crew: clone(crew0), bemerkung: "" }; d.flights.push(f); }
+      f.crew = (f.crew || []).filter(c => c.role !== "pilot"); f.crew.unshift({ memberId: pilot, role: "pilot" });
       S.dirty = true;
-      logPush(`Flug ${d.flights.length} gestartet` + (pil ? ` (Pilot: ${memberName(pil.memberId)})` : ""), "Start", t); break;
+      logPush(`Flug ${d.flights.length} gestartet (Pilot: ${memberName(pilot)})`, "Start", t); break;
     }
+    case "nostart": S.askPilot = null; render(); break;
     case "logland": { const t = nowTime(), f = d.flights[d.flights.length - 1]; f.landung = t; S.dirty = true; logPush(`Flug ${d.flights.length} gelandet, Flugzeit ${fmtH(flightMin(f))} h`, "Landung", t); break; }
     case "logquick": { const tx = $("#logText"); const extra = tx && tx.value.trim(); logPush(extra ? `${b.dataset.t}: ${extra}` : b.dataset.t, "", ($("#logTime") || {}).value); if (tx) tx.value = ""; break; }
     case "logadd": { const tx = $("#logText"); const v = tx.value.trim(); if (!v) { toast("Bitte einen Text eingeben."); tx.focus(); return; } logPush(v, "", $("#logTime").value); break; }
