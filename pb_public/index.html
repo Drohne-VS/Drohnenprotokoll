@@ -233,6 +233,7 @@ select.req { border-color: var(--accent); border-width: 2px; }
 .flight.nopil { border-color: var(--accent); }
 .askpil { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; padding: 12px; border: 2px solid var(--ok); border-radius: var(--r); background: var(--ok-soft); }
 .askpil .f { flex: 1 1 220px; }
+.quick button.swap { font-weight: 600; }
 .askpil button.go { background: var(--ok); border-color: var(--ok); color: #fff; font-size: 16px; padding: 12px 18px; }
 .crewline { font-size: 14px; display: flex; gap: 4px 10px; flex-wrap: wrap; align-items: baseline; }
 .crewline a { color: var(--chart); font-size: 13px; }
@@ -834,7 +835,7 @@ function route() {
   else { S.view = "einsaetze"; S.draft = null; S.dirty = false; }
   render(); window.scrollTo(0, 0);
 }
-function loadDraft(m) { if (!S.draft || S.draft.id !== m.id) { S.extraOpen = null; S.askPilot = null; } S.draft = clone(m); S.dirty = false; S.baseStamp = m.updatedAt || null; S.remoteChanged = false; S.pendingHash = null; }
+function loadDraft(m) { if (!S.draft || S.draft.id !== m.id) { S.extraOpen = null; S.askPilot = null; S.askSwap = false; } S.draft = clone(m); S.dirty = false; S.baseStamp = m.updatedAt || null; S.remoteChanged = false; S.pendingHash = null; }
 function newDraft(typ, hash) {
   const y = today().slice(0, 4);
   const n = S.missions.filter(m => m.typ === typ && (m.datum || "").startsWith(y)).length + 1;
@@ -1016,11 +1017,14 @@ function vProtokoll() {
     if (!last || last.landung) q += `<button class="go" data-act="logstart">▶ ${last ? `Flug ${n + 1} starten` : "Flug 1 starten"} · jetzt</button>`;
     else if (!last.start) q += `<button class="go" data-act="logstart" data-existing="1">▶ Flug ${n} starten · jetzt</button>`;
     else q += `<button class="stop" data-act="logland">■ Flug ${n} gelandet · jetzt</button>`;
+    if (last) q += `<button class="sm swap" data-act="pilswap">⇄ Pilotenwechsel</button>`;
     q += ["Akkuwechsel", "Lagemeldung an EvD/FüGr", "Auftrag erhalten", "Funkverbindung gestört"].map(t => `<button class="sm" data-act="logquick" data-t="${esc(t)}">${esc(t)}</button>`).join("");
   }
   return `<section class="sec"><div class="sec-h"><h2><span class="k">02</span>Einsatzprotokoll</h2><span class="muted" style="font-size:13px">${log.length} Einträge</span></div>
     <p class="muted" style="font-size:13.5px">Start und Landung tragen die Uhrzeit automatisch in den Flug ein. Wetter, Wind und Sicht antippen – jede Änderung wird mit Uhrzeit protokolliert. Jeder Eintrag wird sofort gespeichert, auch ohne Netz. Wie im Funkbuch wird nichts gelöscht: Fehler mit „Korrigieren“ als neuen Eintrag berichtigen.</p>
     ${last && !dis ? `<div class="crewline"><span class="muted">${last.landung ? "Nächster Flug mit" : "In der Luft"}:</span> ${(last.crew || []).filter(c => c.memberId).map(c => `<b>${esc(ROLES_S[c.role])}</b> ${esc(memberName(c.memberId))}`).join(" · ") || `<span class="muted">Crew noch nicht eingetragen</span>`} <button class="ghost sm" data-act="tocrew" style="padding:2px 6px">Crew ändern</button></div>` : ""}
+    ${S.askSwap && !dis && last ? `<div class="askpil"><label class="f"><span>Pilotenwechsel – neuer Pilot${last.start && !last.landung ? " (Drohne bleibt in der Luft)" : " für den nächsten Flug"}</span><select id="swapPilot">${memberOptions("").replace("– Person wählen –", "– neuen Piloten wählen –")}</select></label>
+      <button class="go" data-act="dopilswap">⇄ Wechsel · jetzt</button><button class="ghost" data-act="noswap">Abbrechen</button></div>` : ""}
     ${S.askPilot && !dis ? `<div class="askpil"><label class="f"><span>Wer fliegt Flug ${S.askPilot.existing ? n : n + 1}? (Pilot)</span><select id="startPilot">${memberOptions(S.askPilot.pre).replace("– Person wählen –", "– Pilot wählen –")}</select></label>
       <button class="go" data-act="logstart" data-pick="1" ${S.askPilot.existing ? 'data-existing="1"' : ""}>▶ Starten · jetzt</button><button class="ghost" data-act="nostart">Abbrechen</button></div>` : q ? `<div class="quick">${q}</div>` : ""}
     <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-l="${g.l}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis ? "disabled" : ""}>${esc(o)}</button>`).join("")}</div></div>`).join("")}
@@ -1527,6 +1531,28 @@ function act(a, b) {
       logPush(`Flug ${d.flights.length} gestartet (Pilot: ${memberName(pilot)})`, "Start", t); break;
     }
     case "nostart": S.askPilot = null; render(); break;
+    case "pilswap": S.askSwap = true; S.askPilot = null; render(); { const el = $("#swapPilot"); if (el) el.focus(); } break;
+    case "noswap": S.askSwap = false; render(); break;
+    case "dopilswap": {
+      const np = ($("#swapPilot") || {}).value; if (!np) { toast("Bitte den neuen Piloten wählen."); return; }
+      const f = d.flights[d.flights.length - 1]; const old = (f.crew.find(c => c.role === "pilot" && c.memberId) || {}).memberId;
+      if (old === np) { toast("Das ist bereits der aktuelle Pilot."); return; }
+      const t = nowTime();
+      // neuer Pilot übernimmt die Pilotenrolle; war er vorher z. B. Spotter, wechselt der alte Pilot auf dessen Rolle
+      const swapCrew = crew => { const other = crew.find(c => c.memberId === np && c.role !== "pilot"); return crew.map(c => c.role === "pilot" ? { ...c, memberId: np } : other && c === other && old ? { ...c, memberId: old } : c); };
+      if (f.start && !f.landung) {
+        f.landung = t;
+        const nf = { id: uid("f"), droneId: f.droneId, start: t, landung: "", akkus: "0", crew: swapCrew(clone(f.crew)), bemerkung: "Fortsetzung nach Pilotenwechsel" };
+        d.flights.push(nf);
+        S.askSwap = false; S.dirty = true;
+        logPush(`Pilotenwechsel in der Luft: ${old ? memberName(old) : "–"} → ${memberName(np)} (Flug ${d.flights.length - 1} endet, Flug ${d.flights.length} beginnt)`, "Wechsel", t);
+      } else {
+        f.crew = swapCrew(f.crew || []); if (!f.crew.some(c => c.role === "pilot")) f.crew.unshift({ memberId: np, role: "pilot" });
+        S.askSwap = false; S.dirty = true;
+        logPush(`Pilotenwechsel: ${old ? memberName(old) : "–"} → ${memberName(np)}`, "Wechsel", t);
+      }
+      break;
+    }
     case "logland": { const t = nowTime(), f = d.flights[d.flights.length - 1]; f.landung = t; S.dirty = true; logPush(`Flug ${d.flights.length} gelandet, Flugzeit ${fmtH(flightMin(f))} h`, "Landung", t); break; }
     case "logquick": { const tx = $("#logText"); const extra = tx && tx.value.trim(); logPush(extra ? `${b.dataset.t}: ${extra}` : b.dataset.t, "", ($("#logTime") || {}).value); if (tx) tx.value = ""; break; }
     case "logadd": { const tx = $("#logText"); const v = tx.value.trim(); if (!v) { toast("Bitte einen Text eingeben."); tx.focus(); return; } logPush(v, "", $("#logTime").value); break; }
