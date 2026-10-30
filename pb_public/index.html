@@ -959,6 +959,7 @@ function vEdit() {
     ${d.anforderung === "Sonstige" ? inp("Anforderung – wer?", "anforderungText", { ph: "z. B. Polizei, Nachbarwehr" }) : ""}
     ${inp("Anbindung an", "anbindung", { options: [...ANBINDUNG, ...(d.anbindung && !ANBINDUNG.some(a => a[0] === d.anbindung) ? [[d.anbindung, ANB_LABEL[d.anbindung] || d.anbindung]] : [])] })}
   </div>
+  <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis}>${esc(o)}</button>`).join("")}</div></div>`).join("")}</div>
   <div class="melde"><span class="wx-l">Über den Flug informiert</span>
     ${meldestellen().map((s, i) => { const t = (d.meldungen || {})[s.name];
       return `<div class="melde-r"><button type="button" class="chk" data-act="melde" data-i="${i}" ${dis} aria-pressed="${!!t}"><span class="box">${t ? "✓" : ""}</span>${esc(s.name)}</button>
@@ -1021,14 +1022,12 @@ function vProtokoll() {
     q += ["Akkuwechsel", "Lagemeldung an EvD/FüGr", "Auftrag erhalten", "Funkverbindung gestört"].map(t => `<button class="sm" data-act="logquick" data-t="${esc(t)}">${esc(t)}</button>`).join("");
   }
   return `<section class="sec"><div class="sec-h"><h2><span class="k">02</span>Einsatzprotokoll</h2><span class="muted" style="font-size:13px">${log.length} Einträge</span></div>
-    <p class="muted" style="font-size:13.5px">Start und Landung tragen die Uhrzeit automatisch in den Flug ein. Wetter, Wind und Sicht antippen – jede Änderung wird mit Uhrzeit protokolliert. Jeder Eintrag wird sofort gespeichert, auch ohne Netz. Wie im Funkbuch wird nichts gelöscht: Fehler mit „Korrigieren“ als neuen Eintrag berichtigen.</p>
+    <p class="muted" style="font-size:13.5px">Hier steht nur, was die Drohne betrifft: Starts, Landungen, Pilotenwechsel, Aufträge und Feststellungen. Start und Landung tragen die Uhrzeit automatisch in den Flug ein. Jeder Eintrag wird sofort gespeichert, auch ohne Netz. Wie im Funkbuch wird nichts gelöscht: Fehler mit „Korrigieren“ als neuen Eintrag berichtigen.</p>
     ${last && !dis ? `<div class="crewline"><span class="muted">${last.landung ? "Nächster Flug mit" : "In der Luft"}:</span> ${(last.crew || []).filter(c => c.memberId).map(c => `<b>${esc(ROLES_S[c.role])}</b> ${esc(memberName(c.memberId))}`).join(" · ") || `<span class="muted">Crew noch nicht eingetragen</span>`} <button class="ghost sm" data-act="tocrew" style="padding:2px 6px">Crew ändern</button></div>` : ""}
     ${S.askSwap && !dis && last ? `<div class="askpil"><label class="f"><span>Pilotenwechsel – neuer Pilot${last.start && !last.landung ? " (Drohne bleibt in der Luft)" : " für den nächsten Flug"}</span><select id="swapPilot">${memberOptions("").replace("– Person wählen –", "– neuen Piloten wählen –")}</select></label>
       <button class="go" data-act="dopilswap">⇄ Wechsel · jetzt</button><button class="ghost" data-act="noswap">Abbrechen</button></div>` : ""}
     ${S.askPilot && !dis ? `<div class="askpil"><label class="f"><span>Wer fliegt Flug ${S.askPilot.existing ? n : n + 1}? (Pilot)</span><select id="startPilot">${memberOptions(S.askPilot.pre).replace("– Person wählen –", "– Pilot wählen –")}</select></label>
       <button class="go" data-act="logstart" data-pick="1" ${S.askPilot.existing ? 'data-existing="1"' : ""}>▶ Starten · jetzt</button><button class="ghost" data-act="nostart">Abbrechen</button></div>` : q ? `<div class="quick">${q}</div>` : ""}
-    <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-l="${g.l}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis ? "disabled" : ""}>${esc(o)}</button>`).join("")}</div></div>`).join("")}
-    </div>
     ${dis ? "" : `<div class="log-in"><input type="time" id="logTime" class="mono" value="${nowTime()}" aria-label="Uhrzeit"><input id="logText" placeholder="Eintrag, z. B. Person im Planquadrat G2 gesichtet" aria-label="Protokolleintrag"><button class="primary" data-act="logadd">Eintragen</button></div>`}
     ${log.length ? `<div class="log">${log.slice().reverse().map(x => `<div class="log-row"><span class="tm">${esc(x.zeit)}</span><span class="tx">${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ""}${esc(x.text)}${x._pending ? ` <span class="muted" title="Noch nicht übertragen">⏳</span>` : ""}</span>${dis ? "<span></span>" : `<span class="row" style="gap:2px;flex-wrap:nowrap"><button class="ghost sm" data-act="logfix" data-id="${esc(x.id)}">Korrigieren</button>${isAdmin() ? (S.confirm === "l-" + x.id ? `<button class="sm danger" data-act="logdel" data-id="${esc(x.id)}">Löschen?</button>` : `<button class="ghost danger sm" data-act="askdel" data-k="l-${esc(x.id)}" aria-label="Eintrag löschen">✕</button>`) : ""}</span>`}</div>`).join("")}</div>` : `<span class="muted">Noch keine Einträge.</span>`}
   </section>`;
@@ -1560,7 +1559,7 @@ function act(a, b) {
     case "pick": {
       if (ro()) return; const cur = getPath(d, b.dataset.b), nv = cur === b.dataset.v ? "" : b.dataset.v;
       setPath(d, b.dataset.b, nv); S.dirty = true;
-      if (nv && /^wetter\./.test(b.dataset.b)) logPush(`${b.dataset.l}: ${nv}`, "Wetter", nowTime()); else { markDirty(); render(); }
+      saveDraft();
       break;
     }
     case "melde": {
@@ -1709,7 +1708,7 @@ async function reportPDF() {
     ["Ort / Adresse", m.ort, 2], [U ? "Zeitraum" : "Alarm / Beginn – Ende", `${m.beginn || "–"} – ${m.ende || "–"} Uhr` + (m.ende ? ` (${fmtH(dur(m.beginn, m.ende))} h)` : "")],
     ["Anforderung durch", m.anforderung === "Sonstige" && m.anforderungText ? "Sonstige: " + m.anforderungText : m.anforderung], [U ? "Verantwortlich UAS" : "Einsatzleiter vor Ort", m.einsatzleiter], ["Anbindung an", ANB_LABEL[m.anbindung] || m.anbindung || "–"], ["Flugzeit gesamt", `${fmtH(missionFlightMin(m))} h in ${(m.flights || []).length} Flug/Flügen`],
     ["Über den Flug informiert", Object.entries(m.meldungen || {}).map(([n, t]) => `${n} (${t} Uhr)`).join(", ") || "–", 3],
-    ["Wetter (zuletzt)", [(m.wetter || {}).lage, (m.wetter || {}).wind ? "Wind " + m.wetter.wind : "", (m.wetter || {}).sicht ? "Sicht " + m.wetter.sicht : ""].filter(Boolean).join(", ")],
+    ["Wetter", [(m.wetter || {}).lage, (m.wetter || {}).wind ? "Wind " + m.wetter.wind : "", (m.wetter || {}).sicht ? "Sicht " + m.wetter.sicht : ""].filter(Boolean).join(", ")],
   ]);
   if (m.auftrag) para(c, U ? "Übungsziel / Inhalte" : "Auftrag", m.auftrag);
   const plog = protoFor(m.id);
