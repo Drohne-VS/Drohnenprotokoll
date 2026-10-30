@@ -424,7 +424,7 @@ const MELDE_DEFAULT = [
 ];
 const meldestellen = () => Array.isArray(S.config.meldestellen) && S.config.meldestellen.length ? S.config.meldestellen : MELDE_DEFAULT;
 const telHref = t => "tel:" + String(t || "").replace(/[^\d+]/g, "");
-const AUFTRAG_MODI = ["Splitscreen (Wärmebild / Normalbild)", "Nur Wärmebild", "Nur Normalbild"];
+const AUFTRAG_MODI = ["Normalbild", "Wärmebild", "Splitscreen"];
 const ANFORDERUNG = ["Leitstelle SBK", "EvD", "Sonstige"];
 const PT = {
   start:  { l: "Startplatz",         s: "S", c: "#1F4E79" },

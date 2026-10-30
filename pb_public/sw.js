@@ -1,6 +1,6 @@
 // Offline-Unterstützung: App-Dateien werden auf dem Gerät zwischengespeichert.
 // Daten (/api/) laufen nie über diesen Cache – die speichert die App selbst.
-const CACHE = "uas-flugbuch-v11";
+const CACHE = "uas-flugbuch-v12";
 const SHELL = ["./", "index.html", "vendor/pocketbase.umd.js", "vendor/jspdf.umd.min.js", "manifest.webmanifest", "icon-192.png", "icon-180.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => {
