@@ -228,6 +228,9 @@ tfoot td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: 0;
 .kr-n { display: grid; gap: 5px; justify-items: start; min-width: 0; }
 .kr-o { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .kr-o select { width: auto; flex: 1 1 160px; }
+.kr-t { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.kr-t input[type="time"] { width: 7.2em; padding: 5px 6px; }
+.kr-row.entl { opacity: .72; }
 .melde-g { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 @media (max-width: 520px) { .melde-g { grid-template-columns: minmax(0, 1fr); } }
 .melde-t { position: relative; display: grid; }
@@ -521,6 +524,12 @@ function years() {
   S.missions.forEach(m => m.datum && ys.add(m.datum.slice(0, 4)));
   return [...ys].sort().reverse();
 }
+function dienstZeit(m, id) {
+  // eigene Dienstzeit je Person: von (Ankunft, sonst Beginn) bis (entlassen, sonst Ende des Einsatzes)
+  const t = (m.team || []).find(x => x.memberId === id) || {};
+  return { von: t.von || m.beginn || "", bis: t.bis || m.ende || "", entlassen: !!t.bis };
+}
+function missionDienst(m, id) { const z = dienstZeit(m, id); return dur(z.von, z.bis); }
 function computeHours(year) {
   const rows = new Map();
   const get = id => { if (!rows.has(id)) rows.set(id, { id, einsatz: 0, uebung: 0, dienst: 0, role: {}, nf: {} }); return rows.get(id); };
@@ -531,8 +540,7 @@ function computeHours(year) {
       if (c.role === "pilot" && c.memberId && m.datum) { const prev = lastPilot.get(c.memberId); if (!prev || prev < m.datum) lastPilot.set(c.memberId, m.datum); }
     }));
     if (year !== "alle" && !(m.datum || "").startsWith(year)) return;
-    const dm = dur(m.beginn, m.ende);
-    missionPeople(m).forEach(id => { const r = get(id); r[m.typ === "uebung" ? "uebung" : "einsatz"]++; r.dienst += dm; });
+    missionPeople(m).forEach(id => { const r = get(id); r[m.typ === "uebung" ? "uebung" : "einsatz"]++; r.dienst += missionDienst(m, id); });
     (m.flights || []).forEach(f => {
       const d = flightMin(f);
       (f.crew || []).forEach(c => { if (!c.memberId || !c.role) return; const r = get(c.memberId); r.role[c.role] = (r.role[c.role] || 0) + d; r.nf[c.role] = (r.nf[c.role] || 0) + 1; });
@@ -1224,31 +1232,37 @@ function kraefte(d) {
 }
 function availLabel(d, id) {
   const r = kraefte(d).find(x => x.memberId === id); if (!r) return "";
-  return r.crew ? "in der Crew" : r.ort === "wache" ? "auf Wache" : "verfügbar vor Ort";
+  return r.bis ? "entlassen" : r.crew ? "in der Crew" : r.ort === "wache" ? "auf Wache" : "verfügbar vor Ort";
 }
 function pilotOptions(d, sel, placeholder) {
   // verfügbare Kräfte vor Ort zuerst, dann Crew, dann Wache, dann alle übrigen Mitglieder
-  const rank = id => { const l = availLabel(d, id); return l === "verfügbar vor Ort" ? 0 : l === "in der Crew" ? 1 : l === "auf Wache" ? 2 : 3; };
+  const rank = id => { const l = availLabel(d, id); return l === "verfügbar vor Ort" ? 0 : l === "in der Crew" ? 1 : l === "auf Wache" ? 2 : l === "entlassen" ? 4 : 3; };
   const list = S.members.filter(m => m.aktiv !== false || m.id === sel).slice().sort((a, b) => rank(a.id) - rank(b.id) || byName(a, b));
   return `<option value="">${placeholder}</option>` + list.map(m => { const l = availLabel(d, m.id); return `<option value="${esc(m.id)}" ${m.id === sel ? "selected" : ""}>${esc(m.name)}${l ? " – " + l : ""}</option>`; }).join("");
 }
 function vKraefte() {
   const d = S.draft, U = d.typ === "uebung", dis = ro() ? "disabled" : "";
   const rows = kraefte(d);
-  const vorOrt = rows.filter(r => r.memberId && r.ort !== "wache"), wache = rows.filter(r => r.memberId && r.ort === "wache"), crewN = rows.filter(r => r.crew).length;
+  const aktiv = rows.filter(r => !r.bis), entl = rows.filter(r => r.memberId && r.bis);
+  const vorOrt = aktiv.filter(r => r.memberId && r.ort !== "wache"), wache = aktiv.filter(r => r.memberId && r.ort === "wache"), crewN = rows.filter(r => r.crew).length;
   let h = `<section class="sec"><div class="sec-h"><h2><span class="k">05</span>Verfügbare Einsatzkräfte</h2>
     ${dis ? "" : `<button class="sm" data-act="addteam">+ Person</button>`}</div>
-    <div class="kr-sum"><span><b>${vorOrt.length}</b> an der Einsatzstelle</span><span><b>${crewN}</b> davon in der Crew</span><span><b>${Math.max(0, vorOrt.length - crewN)}</b> verfügbar vor Ort</span><span><b>${wache.length}</b> auf Wache</span></div>`;
+    <div class="kr-sum"><span><b>${vorOrt.length}</b> an der Einsatzstelle</span><span><b>${crewN}</b> davon in der Crew</span><span><b>${Math.max(0, vorOrt.length - crewN)}</b> verfügbar vor Ort</span><span><b>${wache.length}</b> auf Wache</span>${entl.length ? `<span><b>${entl.length}</b> entlassen</span>` : ""}</div>`;
   if (!rows.length) return h + `<p class="muted">Noch niemand eingetragen. Wer in der Crew steht, erscheint hier automatisch.</p></section>`;
   h += `<div class="kr">${rows.map(r => {
-    const st = r.crew ? `<span class="chip ok">In der Crew · ${r.crew.map(k => ROLES_S[k]).join(" + ")}</span>` : r.ort === "wache" ? `<span class="chip neutral">Auf Wache</span>` : `<span class="chip uebung">Verfügbar vor Ort</span>`;
+    const st = r.bis ? `<span class="chip neutral">Entlassen ${esc(r.bis)} Uhr</span>` : r.crew ? `<span class="chip ok">In der Crew · ${r.crew.map(k => ROLES_S[k]).join(" + ")}</span>` : r.ort === "wache" ? `<span class="chip neutral">Auf Wache</span>` : `<span class="chip uebung">Verfügbar vor Ort</span>`;
     if (r.virtual) return `<div class="kr-row"><div class="kr-n"><b>${esc(memberName(r.memberId))}</b>${st}</div><span class="muted" style="font-size:13px">aus der Crew – an der Einsatzstelle</span><span></span></div>`;
-    return `<div class="kr-row">
+    const z = dienstZeit(d, r.memberId);
+    return `<div class="kr-row ${r.bis ? "entl" : ""}">
       <div class="kr-n"><select id="t-${r.i}-m" data-b="team.${r.i}.memberId" data-rr ${dis}>${memberOptions(r.memberId)}</select>${r.memberId ? st : ""}</div>
-      <div class="kr-o"><div class="pick" role="group" aria-label="Ort">${Object.entries(ORT).map(([k, l]) => `<button type="button" data-act="ort" data-i="${r.i}" data-v="${k}" aria-pressed="${r.ort === k}" ${dis}>${l}</button>`).join("")}</div>
-        <select id="t-${r.i}-f" data-b="team.${r.i}.funktion" ${dis}><option value="">– Funktion –</option>${FUNKTIONEN.map(f => `<option ${r.funktion === f ? "selected" : ""}>${f}</option>`).join("")}</select></div>
+      <div class="kr-o">
+        ${r.bis ? "" : `<div class="pick" role="group" aria-label="Ort">${Object.entries(ORT).map(([k, l]) => `<button type="button" data-act="ort" data-i="${r.i}" data-v="${k}" aria-pressed="${r.ort === k}" ${dis}>${l}</button>`).join("")}</div>`}
+        <select id="t-${r.i}-f" data-b="team.${r.i}.funktion" ${dis}><option value="">– Funktion –</option>${FUNKTIONEN.map(f => `<option ${r.funktion === f ? "selected" : ""}>${f}</option>`).join("")}</select>
+        <div class="kr-t"><span class="wx-l">Dienst</span><input type="time" id="t-${r.i}-von" data-b="team.${r.i}.von" value="${esc(r.von || "")}" placeholder="${esc(d.beginn || "")}" title="Ankunft (leer = Beginn ${esc(d.beginn || "")})" ${dis}><span>–</span><input type="time" id="t-${r.i}-bis" data-b="team.${r.i}.bis" data-rr value="${esc(r.bis || "")}" title="Entlassen (leer = bis Ende)" ${dis}><span class="mono muted">${z.bis ? fmtH(dur(z.von, z.bis)) + " h" : "läuft"}</span></div>
+        ${dis ? "" : r.bis ? `<button class="sm ghost" data-act="reaktiv" data-i="${r.i}">Wieder im Dienst</button>` : r.crew ? `<span class="muted" style="font-size:12.5px">In der Crew – erst nach Wechsel entlassbar</span>` : `<button class="sm" data-act="entlassen" data-i="${r.i}">Entlassen · jetzt</button>`}
+      </div>
       ${dis ? "<span></span>" : `<button class="ghost danger sm" data-act="delteam" data-i="${r.i}" aria-label="Person entfernen">✕</button>`}</div>`; }).join("")}</div>
-    <p class="muted" style="font-size:13px">Alle hier Aufgeführten bekommen die ${U ? "Übungs" : "Einsatz"}dauer als Dienstzeit gutgeschrieben – auch die Bereitschaft auf der Wache.</p>`;
+    <p class="muted" style="font-size:13px">Dienstzeit zählt je Person von der Ankunft (leer = Beginn) bis zur Entlassung (leer = Ende des ${U ? "Übung" : "Einsatz"}es). Wer heimgeschickt wird: „Entlassen · jetzt“ – ab dann zählt keine Dienstzeit mehr.</p>`;
   return h + `</section>`;
 }
 function vFlug() {
@@ -1484,7 +1498,7 @@ function vPerson() {
   const all = roleSums(e), win = roleSums(e, t), y365 = roleSums(e, 365);
   const ms = S.missions.filter(x => missionPeople(x).has(m.id));
   const pilAll = e.filter(x => x.role === "pilot"), pe = sumBy(pilAll, x => x.typ !== "uebung"), pu = sumBy(pilAll, x => x.typ === "uebung");
-  const dienst = ms.reduce((s, x) => s + dur(x.beginn, x.ende), 0);
+  const dienst = ms.reduce((s, x) => s + missionDienst(x, m.id), 0);
   let h = `<div class="head"><div>
     <div class="row" style="gap:8px;margin-bottom:6px"><a href="#stunden" class="btn" style="padding:6px 10px;font-size:13px">← Stunden</a>${rChip(r.status)}${m.aktiv === false ? `<span class="chip neutral">Inaktiv</span>` : ""}</div>
     <h1>${esc(m.name)}</h1><p class="sub">${esc(m.quali || "Keine Qualifikation hinterlegt")}</p></div>
@@ -1705,6 +1719,8 @@ function act(a, b) {
     }
     case "delpos": d.positions.splice(+b.dataset.i, 1); markDirty(); render(); break;
     case "addteam": d.team.push({ memberId: "", funktion: "", ort: "einsatzstelle" }); markDirty(); render(); break;
+    case "entlassen": { const t = d.team[+b.dataset.i]; if (!t) return; t.bis = nowTime(); S.dirty = true; saveDraft(); toast(`${memberName(t.memberId)} entlassen (${t.bis} Uhr)`); break; }
+    case "reaktiv": { const t = d.team[+b.dataset.i]; if (!t) return; delete t.bis; S.dirty = true; saveDraft(); break; }
     case "ort": { const t = d.team[+b.dataset.i]; if (!t) return; t.ort = b.dataset.v; S.dirty = true; saveDraft(); break; }
     case "delteam": d.team.splice(+b.dataset.i, 1); markDirty(); render(); break;
     case "teamfromcrew": {
@@ -2003,11 +2019,12 @@ async function reportPDF() {
   const people = [...missionPeople(m)];
   if (people.length) {
     sec(c, "Einsatzkräfte");
-    table(c, ["Name", "Ort", "Funktion", "Rollen im Flug"], people.map(id => {
+    table(c, ["Name", "Ort", "Dienst", "Funktion", "Rollen im Flug"], people.map(id => {
       const t = (m.team || []).find(x => x.memberId === id);
       const roles = {}; (m.flights || []).forEach(f => (f.crew || []).forEach(cc => { if (cc.memberId === id) roles[cc.role] = (roles[cc.role] || 0) + flightMin(f); }));
-      return [memberName(id), t && t.ort === "wache" ? "Wache" : "Einsatzstelle", (t && t.funktion) || "", Object.entries(roles).map(([r, mn]) => `${ROLES_S[r] || r} ${fmtH(mn)} h`).join(", ") || "–"];
-    }), [46, 26, 40, 66]);
+      const z = dienstZeit(m, id);
+      return [memberName(id), t && t.ort === "wache" ? "Wache" : "Einsatzstelle", `${z.von || "–"} – ${z.bis || "–"}${z.entlassen ? " (entl.)" : ""}`, (t && t.funktion) || "", Object.entries(roles).map(([r, mn]) => `${ROLES_S[r] || r} ${fmtH(mn)} h`).join(", ") || "–"];
+    }), [40, 22, 30, 34, 52]);
   }
   if ((m.flights || []).length) {
     sec(c, "Flugverlauf");
@@ -2054,7 +2071,7 @@ async function personPDF() {
   kv(c, [["Name", m.name], ["Qualifikation", m.quali], ["Status", RSTAT[r.status][1]],
     ["Pilot 30 Tage", `${fmtH(r.a)} h (Ziel ${fmtH(r.m30)} h)`], ["Pilot 90 Tage", `${fmtH(r.b)} h (Ziel ${fmtH(r.m90)} h)`], [r.untilLabel || "Gültigkeit", r.until ? fmtDate(r.until) : "–"],
     ["Pilot im Einsatz", `${fmtH(pe.min)} h (${pe.n} Flüge)`], ["Pilot in Übung", `${fmtH(pu.min)} h (${pu.n} Flüge)`], ["Letzter Pilotenflug", r.last ? fmtDate(r.last) : "–"],
-    ["Einsätze", String(ms.filter(x => x.typ !== "uebung").length)], ["Übungen", String(ms.filter(x => x.typ === "uebung").length)], ["Dienstzeit gesamt", fmtH(ms.reduce((s, x) => s + dur(x.beginn, x.ende), 0)) + " h"]]);
+    ["Einsätze", String(ms.filter(x => x.typ !== "uebung").length)], ["Übungen", String(ms.filter(x => x.typ === "uebung").length)], ["Dienstzeit gesamt", fmtH(ms.reduce((s, x) => s + missionDienst(x, m.id), 0)) + " h"]]);
   sec(c, "Tätigkeiten nach Rolle");
   table(c, ["Rolle", `Flüge ${t} T`, `Zeit ${t} T`, "Flüge gesamt", "Zeit gesamt"], ROLES.map(o => [o.l, String((win[o.k] || {}).n || 0), fmtH((win[o.k] || {}).min || 0), String((all[o.k] || {}).n || 0), fmtH((all[o.k] || {}).min || 0)]), [60, 28, 28, 30, 32], { right: [1, 2, 3, 4] });
   if (e.length) { sec(c, "Flüge"); table(c, ["Datum", "Art", "Bericht", "Flug", "Rolle", "Drohne", "Dauer"],
