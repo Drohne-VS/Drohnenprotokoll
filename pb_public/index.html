@@ -1939,9 +1939,12 @@ function table(c, head, rows, widths, opts = {}) {
   const d = c.doc; const tw = widths.reduce((a, b) => a + b, 0); const scale = P.CW / tw; const W = widths.map(w => w * scale);
   const right = opts.right || [];
   const drawHead = () => {
-    d.setFillColor(...P.fill); d.rect(P.ML, c.y, P.CW, 7, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(8); d.setTextColor(...P.muted);
-    let x = P.ML; head.forEach((h, i) => { right.includes(i) ? d.text(clean(h), x + W[i] - 1.5, c.y + 4.8, { align: "right" }) : d.text(clean(h), x + 1.5, c.y + 4.8); x += W[i]; }); c.y += 7;
+    // Spaltenköpfe umbrechen statt überlappen
+    d.setFont("helvetica", "bold"); d.setFontSize(8);
+    const hl = head.map((h, i) => d.splitTextToSize(clean(h), W[i] - 3));
+    const hh = Math.max(7, 3.4 + Math.max(...hl.map(l => l.length)) * 3.4);
+    d.setFillColor(...P.fill); d.rect(P.ML, c.y, P.CW, hh, "F"); d.setTextColor(...P.muted);
+    let x = P.ML; hl.forEach((l, i) => { right.includes(i) ? d.text(l, x + W[i] - 1.5, c.y + 4.6, { align: "right" }) : d.text(l, x + 1.5, c.y + 4.6); x += W[i]; }); c.y += hh;
   };
   ensure(c, 14); drawHead();
   rows.forEach((r, ri) => {
@@ -2052,7 +2055,7 @@ async function reportPDF() {
     const rows = m.flights.map((f, i) => [String(i + 1), droneName(f.droneId), `${f.start || "–"} – ${f.landung || "–"}`, fmtH(flightMin(f)), i === 0 ? "Start" : f.wechsel ? "Pilotenw." : "Akku",
       (f.crew || []).filter(x => x.memberId).map(x => `${ROLES_S[x.role] || x.role}: ${memberName(x.memberId)}`).join("\n") + (f.bemerkung ? "\n" + f.bemerkung : "")]);
     rows.push(["", "Summe", "", fmtH(missionFlightMin(m)), `${m.flights.filter(f => f.pause).length} Akkuw.`, ""]);
-    table(c, ["Abschn.", "Drohne", "Von – Bis", "Dauer", "Anlass", "Crew"], rows, [9, 34, 28, 15, 13, 79], { right: [3, 4], boldLast: true });
+    table(c, ["Nr.", "Drohne", "Von – Bis", "Dauer", "Anlass", "Crew"], rows, [10, 34, 27, 15, 19, 73], { right: [3], boldLast: true });
   }
   sec(c, "Ergebnis & Besonderheiten");
   para(c, U ? "Übungsverlauf / Ergebnis" : "Ergebnis / Lagemeldungen", m.ergebnis);
