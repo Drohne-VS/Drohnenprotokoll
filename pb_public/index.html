@@ -916,6 +916,8 @@ function onMissions() {
     const m = S.missions.find(x => x.id === S.draft.id);
     if (!m) { if (!S.dirty) { ignoreHash = false; location.hash = "einsaetze"; toast(isTablet() ? "Der Bericht ist abgeschlossen oder wurde gelöscht." : "Dieser Bericht wurde gelöscht."); } return; }
     if (m.updatedAt !== S.baseStamp && !m._pending) {
+      const raw = Store.raw("missions", m.id);
+      if (S.lastSaved && S.lastSaved.id === m.id && raw && JSON.stringify(raw.data) === S.lastSaved.data) { S.baseStamp = m.updatedAt; actions(); return; }
       if (!S.dirty) { loadDraft(m); render(); }
       else { S.remoteChanged = true; actions(); }
       return;
@@ -954,11 +956,10 @@ let ignoreHash = false;
 window.addEventListener("hashchange", () => {
   if (ignoreHash) { ignoreHash = false; return; }
   const cur = S.draft ? (S.draft._new ? S.draft._hash : "e-" + S.draft.id) : null;
-  if (S.view === "edit" && S.dirty && cur && location.hash.slice(1) !== cur) {
-    S.pendingHash = location.hash.slice(1) || "einsaetze";
-    ignoreHash = true;
-    location.hash = cur;
-    actions(); return;
+  if (S.view === "edit" && S.dirty && cur && location.hash.slice(1) !== cur && !ro()) {
+    const target = location.hash.slice(1) || "einsaetze";
+    ignoreHash = true; location.hash = cur;
+    saveDraft(target, true); return;
   }
   route();
 });
@@ -1308,7 +1309,7 @@ function actions() {
   const el = $("#actions"); if (!el || !S.draft) return;
   const d = S.draft;
   const pend = !d._new && (S.missions.find(m => m.id === d.id) || {})._pending;
-  let st = S.dirty ? "Ungespeicherte Änderungen" : d._new ? "Noch nicht gespeichert" : pend ? (S.online ? "Wird übertragen …" : "Auf dem Gerät gespeichert – wird übertragen, sobald Netz da ist") : (d.updatedAt ? "Gespeichert " + new Date(d.updatedAt.replace(" ", "T")).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "Gespeichert");
+  let st = S.dirty ? "Änderungen – wird gleich automatisch gespeichert" : d._new ? "Noch nicht gespeichert" : S.autoSaved && S.savedAt && !pend ? `Automatisch gespeichert ${S.savedAt} Uhr` : pend ? (S.online ? "Wird übertragen …" : "Auf dem Gerät gespeichert – wird übertragen, sobald Netz da ist") : (d.updatedAt ? "Gespeichert " + new Date(d.updatedAt.replace(" ", "T")).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "Gespeichert");
   let h = `<span class="state ${S.dirty || d._new ? "dirty" : ""}">${st}</span>`;
   if (S.remoteChanged) h += `<span class="confirm">Jemand anderes hat diesen Bericht geändert. <button class="sm" data-act="reload">Neu laden</button></span>`;
   if (S.pendingHash) h += `<span class="confirm">Änderungen verwerfen? <button class="sm danger" data-act="discard">Verwerfen</button><button class="sm" data-act="stay">Bleiben</button></span>`;
@@ -1329,7 +1330,12 @@ function updateDerived() {
   const fl = $("#dv-flug"); if (fl) fl.innerHTML = `${fmtH(missionFlightMin(d))} <small>h</small>`;
   const dv = $("#dv-dauer"); if (dv) dv.innerHTML = `${d.ende ? fmtH(dur(d.beginn, d.ende)) : "–"} <small>h</small>`;
 }
-function markDirty() { if (!S.dirty) { S.dirty = true; actions(); } }
+let autoT = null;
+function scheduleAutosave(ms) { clearTimeout(autoT); autoT = setTimeout(() => { if (S.dirty && S.draft && !ro()) saveDraft(undefined, true); }, ms || 2500); }
+function markDirty() { if (!S.dirty) { S.dirty = true; actions(); } scheduleAutosave(); }
+function flushAutosave() { clearTimeout(autoT); if (S.dirty && S.draft && !ro()) saveDraft(undefined, true); }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushAutosave(); });
+window.addEventListener("pagehide", flushAutosave);
 
 /* ----- Lageskizze ----- */
 function sketchModel(positions, W, H) {
@@ -1606,19 +1612,23 @@ function vUsers() {
 
 /* ---------- Speichern ---------- */
 function dbErr(e) { console.warn(e); toast("Speichern fehlgeschlagen. Bitte noch einmal versuchen."); }
-async function saveDraft(then) {
+async function saveDraft(then, silent) {
   if (!S.draft || ro()) return;
+  clearTimeout(autoT);
   const d = stripLocal(clone(S.draft)); const id = d.id;
   (d.positions || []).forEach(p => { if (!isFinite(p.lat) || p.lat === null) { p.lat = null; p.lon = null; } });
   const { typ, status, datum } = d;
   ["id", "typ", "status", "datum", "updatedAt", "protokoll"].forEach(k => delete d[k]);
   const wasNew = S.draft._new;
+  S.lastSaved = { id, data: JSON.stringify(d) };
   await Store.upsert("missions", id, { typ: typ === "uebung" ? "uebung" : "einsatz", status: status === "abgeschlossen" ? "abgeschlossen" : "entwurf", datum: datum || "", data: d });
   delete S.draft._new; delete S.draft._hash;
   S.dirty = false; S.remoteChanged = false;
   S.baseStamp = (S.missions.find(m => m.id === id) || {}).updatedAt || S.baseStamp;
   if (then) { S.pendingHash = null; location.hash = then; return; }
   if (wasNew) { ignoreHash = true; location.hash = "e-" + id; }
+  S.savedAt = nowTime(); S.autoSaved = !!silent;
+  if (silent) { actions(); return; }
   toast(S.online ? "Gespeichert" : "Auf dem Gerät gespeichert");
   render();
 }
