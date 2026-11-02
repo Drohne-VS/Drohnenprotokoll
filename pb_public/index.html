@@ -220,6 +220,14 @@ tfoot td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: 0;
 .wx-l { font: 600 13px/1 var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .pick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .melde { display: grid; gap: 6px; }
+.kr-sum { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--muted); }
+.kr-sum b { color: var(--ink); font-size: 17px; font-family: var(--f-display); }
+.kr { display: grid; gap: 8px; }
+.kr-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 8px 12px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); }
+@media (max-width: 640px) { .kr-row { grid-template-columns: minmax(0, 1fr) auto; } .kr-o { grid-column: 1 / -1; } }
+.kr-n { display: grid; gap: 5px; justify-items: start; min-width: 0; }
+.kr-o { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.kr-o select { width: auto; flex: 1 1 160px; }
 .melde-g { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 @media (max-width: 520px) { .melde-g { grid-template-columns: minmax(0, 1fr); } }
 .melde-t { position: relative; display: grid; }
@@ -1105,15 +1113,8 @@ function vEdit() {
   h += vFotos();
   // 3 Flug – ein durchgehender Flug, intern in Abschnitte geteilt (Akku-/Pilotenwechsel)
   h += vFlug();
-  // 4 Kräfte
-  h += `<section class="sec"><div class="sec-h"><h2><span class="k">05</span>Eingesetzte Kräfte</h2>
-    ${dis ? "" : `<div class="row"><button class="sm ghost" data-act="teamfromcrew">Aus Flugcrews übernehmen</button><button class="sm" data-act="addteam">+ Person</button></div>`}</div>
-    <p class="muted" style="font-size:13.5px">Wer hier oder in einer Flugcrew steht, bekommt die ${U ? "Übungs" : "Einsatz"}dauer als Dienstzeit gutgeschrieben.</p>
-    <div class="crew">${(d.team || []).length ? d.team.map((t, i) => `<div class="team-row">
-      <select id="t-${i}-m" data-b="team.${i}.memberId" ${dis}>${memberOptions(t.memberId)}</select>
-      <select id="t-${i}-f" data-b="team.${i}.funktion" ${dis}><option value="">– Funktion –</option>${FUNKTIONEN.map(f => `<option ${t.funktion === f ? "selected" : ""}>${f}</option>`).join("")}</select>
-      ${dis ? "<span></span>" : `<button class="ghost danger sm" data-act="delteam" data-i="${i}" aria-label="Person entfernen">✕</button>`}</div>`).join("") : `<span class="muted">Noch niemand eingetragen.</span>`}</div>
-  </section>`;
+  // 5 Verfügbare Einsatzkräfte
+  h += vKraefte();
   // 5 Ergebnis
   h += `<section class="sec"><div class="sec-h"><h2><span class="k">06</span>Ergebnis &amp; Besonderheiten</h2></div><div class="grid">
     ${inp(U ? "Übungsverlauf / Ergebnis" : "Ergebnis / Lagemeldungen", "ergebnis", { area: true, cls: "wf", ph: "Was wurde festgestellt, gemeldet, übergeben?" })}
@@ -1163,9 +1164,9 @@ function vProtokoll() {
         <div class="pick">${AUFTRAG_MODI.map(m => `<button type="button" data-act="amodus" data-v="${esc(m)}" aria-pressed="${S.askAuftrag.modus === m}">${esc(m)}</button>`).join("")}</div>
         <label class="f"><span>Auftrag (frei)</span><input id="auftragText" placeholder="z. B. Waldstück nördlich Parkplatz absuchen, Person männlich, dunkle Jacke" value="${esc(S.askAuftrag.text || "")}"></label>
         <div class="row"><button class="go" data-act="doauftrag">Auftrag eintragen</button><button class="ghost" data-act="noauftrag">Abbrechen</button></div></div></div>` : ""}
-    ${S.askSwap && !dis && last ? `<div class="askpil"><label class="f"><span>Pilotenwechsel – neuer Pilot${st === "luft" ? " (Drohne bleibt in der Luft)" : " ab dem nächsten Start"}</span><select id="swapPilot">${memberOptions("").replace("– Person wählen –", "– neuen Piloten wählen –")}</select></label>
+    ${S.askSwap && !dis && last ? `<div class="askpil"><label class="f"><span>Pilotenwechsel – neuer Pilot${st === "luft" ? " (Drohne bleibt in der Luft)" : " ab dem nächsten Start"}</span><select id="swapPilot">${pilotOptions(d, "", "– neuen Piloten wählen –")}</select></label>
       <button class="go" data-act="dopilswap">⇄ Wechsel · jetzt</button><button class="ghost" data-act="noswap">Abbrechen</button></div>` : ""}
-    ${S.askPilot && !dis ? `<div class="askpil"><label class="f"><span>Wer fliegt? (Pilot)</span><select id="startPilot">${memberOptions(S.askPilot.pre).replace("– Person wählen –", "– Pilot wählen –")}</select></label>
+    ${S.askPilot && !dis ? `<div class="askpil"><label class="f"><span>Wer fliegt? (Pilot)</span><select id="startPilot">${pilotOptions(d, S.askPilot.pre, "– Pilot wählen –")}</select></label>
       <button class="go" data-act="logstart" data-pick="1">▶ Starten · jetzt</button><button class="ghost" data-act="nostart">Abbrechen</button></div>` : q ? `<div class="quick">${q}</div>` : ""}
     ${dis ? "" : `<div class="log-in"><input type="time" id="logTime" class="mono" value="${nowTime()}" aria-label="Uhrzeit"><input id="logText" placeholder="Eintrag, z. B. Person im Planquadrat G2 gesichtet" aria-label="Protokolleintrag"><button class="primary" data-act="logadd">Eintragen</button></div>`}
     ${log.length ? `<div class="log">${log.slice().reverse().map(x => `<div class="log-row"><span class="tm">${esc(x.zeit)}</span><span class="tx">${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ""}${esc(x.text)}${x._pending ? ` <span class="muted" title="Noch nicht übertragen">⏳</span>` : ""}</span>${dis ? "<span></span>" : `<span class="row" style="gap:2px;flex-wrap:nowrap"><button class="ghost sm" data-act="logfix" data-id="${esc(x.id)}">Korrigieren</button>${isAdmin() ? (S.confirm === "l-" + x.id ? `<button class="sm danger" data-act="logdel" data-id="${esc(x.id)}">Löschen?</button>` : `<button class="ghost danger sm" data-act="askdel" data-k="l-${esc(x.id)}" aria-label="Eintrag löschen">✕</button>`) : ""}</span>`}</div>`).join("")}</div>` : `<span class="muted">Noch keine Einträge.</span>`}
@@ -1211,6 +1212,44 @@ function crewSlots(idx, crew, dis) {
   return ROLES.map(r => { const c = crew.find(x => x.role === r.k) || {}; return `<div class="slot">
     <div class="sl">${r.l}<small>${r.hint}</small></div>
     <select id="cr-${idx}-${r.k}" data-crew="${idx}" data-role="${r.k}" ${dis} ${r.k === "pilot" ? `class="${c.memberId ? "" : "req"}"` : ""}>${r.k === "pilot" ? memberOptions(c.memberId).replace("– Person wählen –", "– Pilot wählen (Pflicht) –") : memberOptions(c.memberId, pil).replace("– Person wählen –", "– nicht besetzt –")}</select></div>`; }).join("");
+}
+const ORT = { einsatzstelle: "An der Einsatzstelle", wache: "Auf Wache" };
+function kraefte(d) {
+  // Liste aus „Verfügbare Einsatzkräfte“ plus alle, die in der aktuellen Crew stehen
+  const crew = curCrew(d).filter(c => c.memberId), inCrew = new Map();
+  crew.forEach(c => inCrew.set(c.memberId, [...(inCrew.get(c.memberId) || []), c.role]));
+  const rows = (d.team || []).map((t, i) => ({ ...t, i, ort: t.ort || "einsatzstelle", crew: inCrew.get(t.memberId) || null }));
+  crew.forEach(c => { if (!rows.some(r => r.memberId === c.memberId)) rows.push({ memberId: c.memberId, funktion: "", ort: "einsatzstelle", crew: inCrew.get(c.memberId), virtual: true }); });
+  const seen = new Set(); return rows.filter(r => !r.memberId || !seen.has(r.memberId) && seen.add(r.memberId));
+}
+function availLabel(d, id) {
+  const r = kraefte(d).find(x => x.memberId === id); if (!r) return "";
+  return r.crew ? "in der Crew" : r.ort === "wache" ? "auf Wache" : "verfügbar vor Ort";
+}
+function pilotOptions(d, sel, placeholder) {
+  // verfügbare Kräfte vor Ort zuerst, dann Crew, dann Wache, dann alle übrigen Mitglieder
+  const rank = id => { const l = availLabel(d, id); return l === "verfügbar vor Ort" ? 0 : l === "in der Crew" ? 1 : l === "auf Wache" ? 2 : 3; };
+  const list = S.members.filter(m => m.aktiv !== false || m.id === sel).slice().sort((a, b) => rank(a.id) - rank(b.id) || byName(a, b));
+  return `<option value="">${placeholder}</option>` + list.map(m => { const l = availLabel(d, m.id); return `<option value="${esc(m.id)}" ${m.id === sel ? "selected" : ""}>${esc(m.name)}${l ? " – " + l : ""}</option>`; }).join("");
+}
+function vKraefte() {
+  const d = S.draft, U = d.typ === "uebung", dis = ro() ? "disabled" : "";
+  const rows = kraefte(d);
+  const vorOrt = rows.filter(r => r.memberId && r.ort !== "wache"), wache = rows.filter(r => r.memberId && r.ort === "wache"), crewN = rows.filter(r => r.crew).length;
+  let h = `<section class="sec"><div class="sec-h"><h2><span class="k">05</span>Verfügbare Einsatzkräfte</h2>
+    ${dis ? "" : `<button class="sm" data-act="addteam">+ Person</button>`}</div>
+    <div class="kr-sum"><span><b>${vorOrt.length}</b> an der Einsatzstelle</span><span><b>${crewN}</b> davon in der Crew</span><span><b>${Math.max(0, vorOrt.length - crewN)}</b> verfügbar vor Ort</span><span><b>${wache.length}</b> auf Wache</span></div>`;
+  if (!rows.length) return h + `<p class="muted">Noch niemand eingetragen. Wer in der Crew steht, erscheint hier automatisch.</p></section>`;
+  h += `<div class="kr">${rows.map(r => {
+    const st = r.crew ? `<span class="chip ok">In der Crew · ${r.crew.map(k => ROLES_S[k]).join(" + ")}</span>` : r.ort === "wache" ? `<span class="chip neutral">Auf Wache</span>` : `<span class="chip uebung">Verfügbar vor Ort</span>`;
+    if (r.virtual) return `<div class="kr-row"><div class="kr-n"><b>${esc(memberName(r.memberId))}</b>${st}</div><span class="muted" style="font-size:13px">aus der Crew – an der Einsatzstelle</span><span></span></div>`;
+    return `<div class="kr-row">
+      <div class="kr-n"><select id="t-${r.i}-m" data-b="team.${r.i}.memberId" data-rr ${dis}>${memberOptions(r.memberId)}</select>${r.memberId ? st : ""}</div>
+      <div class="kr-o"><div class="pick" role="group" aria-label="Ort">${Object.entries(ORT).map(([k, l]) => `<button type="button" data-act="ort" data-i="${r.i}" data-v="${k}" aria-pressed="${r.ort === k}" ${dis}>${l}</button>`).join("")}</div>
+        <select id="t-${r.i}-f" data-b="team.${r.i}.funktion" ${dis}><option value="">– Funktion –</option>${FUNKTIONEN.map(f => `<option ${r.funktion === f ? "selected" : ""}>${f}</option>`).join("")}</select></div>
+      ${dis ? "<span></span>" : `<button class="ghost danger sm" data-act="delteam" data-i="${r.i}" aria-label="Person entfernen">✕</button>`}</div>`; }).join("")}</div>
+    <p class="muted" style="font-size:13px">Alle hier Aufgeführten bekommen die ${U ? "Übungs" : "Einsatz"}dauer als Dienstzeit gutgeschrieben – auch die Bereitschaft auf der Wache.</p>`;
+  return h + `</section>`;
 }
 function vFlug() {
   const d = S.draft, dis = ro() ? "disabled" : "", fl = d.flights || [], st = flugState(d);
@@ -1665,7 +1704,8 @@ function act(a, b) {
       markDirty(); render(); const i = d.positions.length - 1; const el = document.getElementById(`p-${i}-c`); if (el) el.focus(); break;
     }
     case "delpos": d.positions.splice(+b.dataset.i, 1); markDirty(); render(); break;
-    case "addteam": d.team.push({ memberId: "", funktion: "" }); markDirty(); render(); break;
+    case "addteam": d.team.push({ memberId: "", funktion: "", ort: "einsatzstelle" }); markDirty(); render(); break;
+    case "ort": { const t = d.team[+b.dataset.i]; if (!t) return; t.ort = b.dataset.v; S.dirty = true; saveDraft(); break; }
     case "delteam": d.team.splice(+b.dataset.i, 1); markDirty(); render(); break;
     case "teamfromcrew": {
       const have = new Set(d.team.map(t => t.memberId));
@@ -1962,12 +2002,12 @@ async function reportPDF() {
   }
   const people = [...missionPeople(m)];
   if (people.length) {
-    sec(c, "Eingesetzte Kräfte");
-    table(c, ["Name", "Funktion", "Rollen in Flügen"], people.map(id => {
+    sec(c, "Einsatzkräfte");
+    table(c, ["Name", "Ort", "Funktion", "Rollen im Flug"], people.map(id => {
       const t = (m.team || []).find(x => x.memberId === id);
       const roles = {}; (m.flights || []).forEach(f => (f.crew || []).forEach(cc => { if (cc.memberId === id) roles[cc.role] = (roles[cc.role] || 0) + flightMin(f); }));
-      return [memberName(id), (t && t.funktion) || "", Object.entries(roles).map(([r, mn]) => `${ROLE[r] || r} ${fmtH(mn)} h`).join(", ") || "–"];
-    }), [50, 45, 83]);
+      return [memberName(id), t && t.ort === "wache" ? "Wache" : "Einsatzstelle", (t && t.funktion) || "", Object.entries(roles).map(([r, mn]) => `${ROLES_S[r] || r} ${fmtH(mn)} h`).join(", ") || "–"];
+    }), [46, 26, 40, 66]);
   }
   if ((m.flights || []).length) {
     sec(c, "Flugverlauf");
