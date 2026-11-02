@@ -233,6 +233,16 @@ select.req { border-color: var(--accent); border-width: 2px; }
 .flight.nopil { border-color: var(--accent); }
 .askpil { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; padding: 12px; border: 2px solid var(--ok); border-radius: var(--r); background: var(--ok-soft); }
 .askpil .f { flex: 1 1 220px; }
+.fotos { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.foto { margin: 0; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); overflow: hidden; display: grid; }
+.foto-img { padding: 0; border: 0; border-radius: 0; background: var(--sunken); aspect-ratio: 4 / 3; display: grid; place-items: center; overflow: hidden; width: 100%; }
+.foto-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.foto figcaption { padding: 8px 10px 10px; display: grid; gap: 6px; }
+.foto figcaption input { padding: 6px 8px; font-size: 14px; }
+label.fotobtn { cursor: pointer; font-size: 15px; padding: 11px 14px; }
+.zoom { position: fixed; inset: 0; z-index: 30; background: rgba(10,12,14,.92); display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px)); }
+.zoom img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.zoom-x { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); }
 .askpil.auftrag { border-color: var(--chart); background: var(--uebung-soft); }
 .quick button.swap, .quick button.akku { font-weight: 600; font-size: 15px; padding: 11px 14px; }
 table.verlauf input[type="time"] { width: 7.5em; padding: 5px 6px; }
@@ -294,6 +304,7 @@ details.extra[open] { display: grid; gap: 14px; }
 </header>
 <main class="main" id="view" aria-live="polite"></main>
 <div class="toast" id="toast" hidden></div>
+<div class="zoom" id="zoom" hidden data-act="zoomclose"><img alt="Foto groß"><button class="zoom-x" data-act="zoomclose" aria-label="Schließen">Schließen</button></div>
 
 <script>
 // UTM / UTMREF (MGRS) – WGS84
@@ -565,7 +576,7 @@ const pbId = () => { const a = "abcdefghijklmnopqrstuvwxyz0123456789"; const r =
 const me = () => pb.authStore.record || null;
 const isAdmin = () => !!me() && me().role === "admin";
 const isTablet = () => !!me() && me().role === "tablet";
-const COLS = ["config", "members", "drones", "missions", "protokoll"];
+const COLS = ["config", "members", "drones", "missions", "protokoll", "fotos"];
 
 const Store = (() => {
   let cache = {}, outbox = [], flushing = false, subscribed = false, timer = null;
@@ -592,9 +603,10 @@ const Store = (() => {
       logoUrl: cf.logo && cf.collectionId ? pb.files.getURL(cf, cf.logo) : "" } : {};
     S.protokoll = recs("protokoll").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit, text: r.text, tag: r.tag || "", created: r.created || "", _pending: !!r._pending }))
       .sort((a, b) => (tmin(a.zeit) ?? 0) - (tmin(b.zeit) ?? 0) || String(a.created).localeCompare(String(b.created)));
+    S.fotos = recs("fotos").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit || "", quelle: r.quelle || "", beschreibung: r.beschreibung || "", created: r.created || "" }));
     S.pending = outbox.length;
   }
-  function changed(col) { toState(); header(); if (col === "missions" || col === "protokoll") onMissions(); else softRender(); }
+  function changed(col) { toState(); header(); if (col === "missions" || col === "protokoll" || col === "fotos") onMissions(); else softRender(); }
   async function loadCol(c) {
     const items = await pb.collection(c).getFullList({ batch: 500 });
     cache[c] = {}; items.forEach(r => cache[c][r.id] = r);
@@ -664,13 +676,14 @@ const Store = (() => {
           changed(o.col);
         }
       }
-    } finally { flushing = false; S.pending = outbox.length; header(); }
+    } finally { flushing = false; S.pending = outbox.length; header(); if (!outbox.length && typeof FotoQ !== "undefined") FotoQ.flush(); }
   }
   function queue(o) { outbox.push(o); saveOutbox(); localApply(o); persist(o.col); changed(o.col); flush(); return Promise.resolve(o.id); }
   return {
     init() {
       cache = {}; COLS.forEach(c => { cache[c] = LS.get(ck(c), {}); });
       outbox = LS.get(ok(), []); subscribed = false;
+      FotoQ.load().then(() => { if (S.view === "edit") render(); });
       toState();
       if (Object.keys(cache.missions).length || Object.keys(cache.members).length) COLS.forEach(c => S.loaded[c] = true);
       loadAll().then(flush);
@@ -685,6 +698,7 @@ const Store = (() => {
     create: (col, body) => queue({ op: "create", col, id: pbId(), body }),
     del: (col, id) => queue({ op: "delete", col, id }),
     raw: (col, id) => (cache[col] || {})[id],
+    put(col, rec) { (cache[col] || (cache[col] = {}))[rec.id] = rec; persist(col); changed(col); },
     async setLogo(file) {
       const fd = new FormData(); fd.append("logo", file);
       let id = S.config.id;
@@ -706,6 +720,113 @@ function downloadFile(filename, data) {
   const url = URL.createObjectURL(blob); const a = document.createElement("a");
   a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+/* ---------- Fotos (V2.0) ---------- */
+const APP_VERSION = "2.0";
+const QUELLE = { einsatzstelle: "Einsatzstelle", drohne: "Drohne" };
+const FotoQ = (() => {
+  let dbp = null, flushing = false, items = [];
+  const open = () => dbp || (dbp = new Promise((ok, no) => {
+    try { const r = indexedDB.open("uas-flugbuch-fotos", 1); r.onupgradeneeded = () => r.result.createObjectStore("q", { keyPath: "id" }); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); }
+    catch (e) { no(e); }
+  }));
+  const tx = async (mode, fn) => { const db = await open(); return new Promise((ok, no) => { const t = db.transaction("q", mode); const s = t.objectStore("q"); const r = fn(s); t.oncomplete = () => ok(r && r.result); t.onerror = () => no(t.error); }); };
+  async function load() {
+    try { const all = await tx("readonly", s => s.getAll()); items.forEach(i => i.url && URL.revokeObjectURL(i.url)); items = (all || []).filter(i => i.user === ((me() || {}).id)).map(i => ({ ...i, url: URL.createObjectURL(i.blob) })); }
+    catch (e) { items = []; }
+    S.fotoQueue = items; S.pending = (S.pending || 0);
+  }
+  async function add(it) { await tx("readwrite", s => s.put(it)); await load(); render(); flush(); }
+  async function del(id) { await tx("readwrite", s => s.delete(id)); await load(); }
+  async function flush() {
+    if (flushing || !items.length || Store.pending()) return;
+    flushing = true;
+    try {
+      for (const it of items.slice()) {
+        const fd = new FormData();
+        fd.append("id", it.id); fd.append("mission", it.mission); fd.append("zeit", it.zeit); fd.append("quelle", it.quelle); fd.append("beschreibung", it.beschreibung || "");
+        fd.append("bild", it.blob, it.name || "foto.jpg");
+        try { const rec = await pb.collection("fotos").create(fd); Store.put("fotos", rec); await del(it.id); }
+        catch (e) {
+          if (e.status === 400 && e.response && e.response.data && e.response.data.id) { await del(it.id); continue; }
+          if (!e.status || e.status >= 500 || e.status === 429) break;
+          toast("Ein Foto wurde vom Server abgelehnt" + (e.status === 403 || e.status === 404 ? " (Bericht abgeschlossen?)" : "") + ". Es bleibt auf dem Gerät, bis du es entfernst.");
+          it.failed = true; break;
+        }
+      }
+    } finally { flushing = false; await load(); if (S.view === "edit") render(); }
+  }
+  return { load, add, del, flush, items: () => items };
+})();
+let fileTok = { t: "", at: 0, p: null };
+async function fileToken() {
+  if (fileTok.t && Date.now() - fileTok.at < 90000) return fileTok.t;
+  if (!fileTok.p) fileTok.p = pb.files.getToken().then(t => { fileTok = { t, at: Date.now(), p: null }; return t; }, e => { fileTok.p = null; throw e; });
+  return fileTok.p;
+}
+function fotoURL(f, thumb) {
+  const r = Store.raw("fotos", f.id); if (!r || !r.bild || !fileTok.t) return "";
+  return pb.files.getURL(r, r.bild, thumb ? { thumb, token: fileTok.t } : { token: fileTok.t });
+}
+function fotosFor(id) { return (S.fotos || []).filter(x => x.mission === id); }
+async function shrink(file) {
+  // große Fotos verkleinern (max. 2560 px, JPEG) – spart Datenvolumen und Speicher
+  try {
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; });
+    URL.revokeObjectURL(url);
+    const k = Math.min(1, 2560 / Math.max(img.naturalWidth, img.naturalHeight));
+    if (k === 1 && file.size < 1.5e6 && /jpe?g/.test(file.type)) return { blob: file, name: file.name };
+    const cv = document.createElement("canvas"); cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+    const blob = await new Promise(ok => cv.toBlob(ok, "image/jpeg", 0.86));
+    return { blob: blob || file, name: (file.name || "foto").replace(/\.[^.]+$/, "") + ".jpg" };
+  } catch (e) { return { blob: file, name: file.name }; }
+}
+async function addFotos(files, quelle) {
+  const d = S.draft; if (!d || ro()) return;
+  if (d._new || S.dirty) await saveDraft();
+  let n = 0;
+  for (const file of files) {
+    if (!/^image\//.test(file.type) && !/\.(heic|heif)$/i.test(file.name)) continue;
+    const { blob, name } = await shrink(file);
+    const lm = file.lastModified ? new Date(file.lastModified) : null;
+    const zeit = lm && today() === `${lm.getFullYear()}-${pad(lm.getMonth() + 1)}-${pad(lm.getDate())}` && Date.now() - lm.getTime() < 864e5 ? `${pad(lm.getHours())}:${pad(lm.getMinutes())}` : nowTime();
+    await FotoQ.add({ id: pbId(), user: (me() || {}).id, mission: d.id, zeit, quelle, beschreibung: "", blob, name, created: Date.now() });
+    n++;
+  }
+  toast(n ? `${n} ${n === 1 ? "Bild" : "Bilder"} hinzugefügt${S.online ? "" : " – wird übertragen, sobald Netz da ist"}` : "Keine Bilddatei erkannt.");
+}
+function vFotos() {
+  const d = S.draft, dis = ro(), list = fotosFor(d.id), q = (S.fotoQueue || []).filter(x => x.mission === d.id);
+  if (list.length && !fileTok.t && S.online) fileToken().then(() => { if (S.view === "edit") render(); }, () => {});
+  const all = [...list.map(f => ({ ...f, srv: true })), ...q.map(x => ({ ...x, local: true }))].sort((a, b) => (tmin(a.zeit) ?? 0) - (tmin(b.zeit) ?? 0));
+  let h = `<section class="sec" id="sec-fotos"><div class="sec-h"><h2><span class="k">03</span>Fotos &amp; Screenshots</h2><span class="muted" style="font-size:13px">${all.length} ${all.length === 1 ? "Bild" : "Bilder"}</span></div>`;
+  if (!dis) h += `<div class="quick">
+      <label class="btn fotobtn" for="fotoCam">Einsatzstellenfoto aufnehmen</label><input type="file" id="fotoCam" accept="image/*" capture="environment" data-quelle="einsatzstelle" hidden>
+      <label class="btn fotobtn" for="fotoPick">Drohnen-Screenshot / Bild wählen</label><input type="file" id="fotoPick" accept="image/*" multiple data-quelle="drohne" hidden>
+    </div>
+    <p class="muted" style="font-size:13px">Screenshots vom Steuer-Tablet: dort in der Galerie auswählen (auch mehrere). Die Uhrzeit wird aus der Bilddatei übernommen, wenn sie von heute ist. Ohne Netz bleiben die Bilder auf dem Gerät und werden später übertragen.</p>`;
+  if (!all.length) return h + `<p class="muted">Noch keine Bilder.</p></section>`;
+  h += `<div class="fotos">${all.map(f => {
+    const src = f.local ? f.url : fotoURL(f, "400x0");
+    return `<figure class="foto">
+      <button type="button" class="foto-img" data-act="fotozoom" data-id="${esc(f.id)}" ${f.local ? 'data-local="1"' : ""} aria-label="Bild vergrößern">${src ? `<img src="${esc(src)}" alt="${esc(f.beschreibung || "Foto")}" loading="lazy">` : `<span class="muted">Bild wird geladen …</span>`}</button>
+      <figcaption>
+        <div class="row" style="gap:6px"><span class="mono">${esc(f.zeit || "")}</span><span class="chip ${f.quelle === "drohne" ? "uebung" : "neutral"}">${QUELLE[f.quelle] || "Foto"}</span>${f.local ? `<span class="chip warn" title="Noch nicht auf dem Server">${f.failed ? "Abgelehnt" : "wartet"}</span>` : ""}</div>
+        ${f.local ? `<span class="muted" style="font-size:13px">${esc(f.beschreibung || "")}</span>${f.failed || isAdmin() ? `<button class="sm ghost danger" data-act="fotolocaldel" data-id="${esc(f.id)}">Vom Gerät entfernen</button>` : ""}`
+          : `<input id="fb-${esc(f.id)}" data-foto="${esc(f.id)}" value="${esc(f.beschreibung || "")}" placeholder="Beschreibung" ${dis ? "disabled" : ""}>
+             ${isAdmin() && !dis ? (S.confirm === "f-" + f.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="fotodel" data-id="${esc(f.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="f-${esc(f.id)}">Löschen</button>`) : ""}`}
+      </figcaption></figure>`; }).join("")}</div>`;
+  return h + `</section>`;
+}
+async function openZoom(id, local) {
+  let src = "";
+  if (local) { const it = (S.fotoQueue || []).find(x => x.id === id); src = it ? it.url : ""; }
+  else { try { await fileToken(); } catch (e) {} const f = (S.fotos || []).find(x => x.id === id); src = f ? fotoURL(f, "") : ""; }
+  if (!src) { toast("Das Bild ist gerade nicht erreichbar."); return; }
+  const z = $("#zoom"); z.querySelector("img").src = src; z.hidden = false;
 }
 
 /* ---------- Anmeldung ---------- */
@@ -740,6 +861,7 @@ function vAuth() {
     <label class="f"><span>Benutzername</span><input id="a-user" required autocapitalize="none" autocomplete="username" placeholder="${setup ? "z. B. michael" : ""}" value="${esc((S.authForm || {}).user || "")}"></label>
     <label class="f"><span>Passwort</span><input id="a-pass" type="password" required minlength="${setup ? 10 : 1}" autocomplete="${setup ? "new-password" : "current-password"}"></label>
     ${setup ? `<label class="f"><span>Passwort wiederholen</span><input id="a-pass2" type="password" required minlength="10" autocomplete="new-password"></label><p class="muted" style="font-size:13px">Mindestens 10 Zeichen.</p>` : ""}
+    <p class="muted" style="font-size:12px;margin:0">Version ${APP_VERSION}</p>
     <button class="primary" type="submit" ${S.authBusy ? "disabled" : ""}>${S.authBusy ? "Bitte warten …" : setup ? "Admin anlegen" : "Anmelden"}</button>
   </form></div>`;
 }
@@ -971,10 +1093,11 @@ function vEdit() {
   </section>`;
   // 2 Protokoll – Hauptarbeitsbereich des Technikers
   h += vProtokoll();
+  h += vFotos();
   // 3 Flug – ein durchgehender Flug, intern in Abschnitte geteilt (Akku-/Pilotenwechsel)
   h += vFlug();
   // 4 Kräfte
-  h += `<section class="sec"><div class="sec-h"><h2><span class="k">04</span>Eingesetzte Kräfte</h2>
+  h += `<section class="sec"><div class="sec-h"><h2><span class="k">05</span>Eingesetzte Kräfte</h2>
     ${dis ? "" : `<div class="row"><button class="sm ghost" data-act="teamfromcrew">Aus Flugcrews übernehmen</button><button class="sm" data-act="addteam">+ Person</button></div>`}</div>
     <p class="muted" style="font-size:13.5px">Wer hier oder in einer Flugcrew steht, bekommt die ${U ? "Übungs" : "Einsatz"}dauer als Dienstzeit gutgeschrieben.</p>
     <div class="crew">${(d.team || []).length ? d.team.map((t, i) => `<div class="team-row">
@@ -983,7 +1106,7 @@ function vEdit() {
       ${dis ? "<span></span>" : `<button class="ghost danger sm" data-act="delteam" data-i="${i}" aria-label="Person entfernen">✕</button>`}</div>`).join("") : `<span class="muted">Noch niemand eingetragen.</span>`}</div>
   </section>`;
   // 5 Ergebnis
-  h += `<section class="sec"><div class="sec-h"><h2><span class="k">05</span>Ergebnis &amp; Besonderheiten</h2></div><div class="grid">
+  h += `<section class="sec"><div class="sec-h"><h2><span class="k">06</span>Ergebnis &amp; Besonderheiten</h2></div><div class="grid">
     ${inp(U ? "Übungsverlauf / Ergebnis" : "Ergebnis / Lagemeldungen", "ergebnis", { area: true, cls: "wf", ph: "Was wurde festgestellt, gemeldet, übergeben?" })}
     ${inp("Besonderheiten / Störungen / Schäden", "besonderheiten", { area: true, cls: "wf", ph: "z. B. Verbindungsabbruch, Akkuproblem, Vorkommnisse" })}
   </div></section>`;
@@ -1087,7 +1210,7 @@ function vFlug() {
   const crewIdx = (st === "luft" || !d.nextCrew) && last ? String(fl.length - 1) : "next";
   const stLabel = { boden: "Noch nicht gestartet", luft: "In der Luft", pause: "Gelandet – Akkuwechsel", ende: "Flug beendet" }[st];
   const droneSel = (last && last.droneId) || d.droneId || "";
-  let h = `<section class="sec" id="sec-fluege"><div class="sec-h"><h2><span class="k">03</span>Flug &amp; Crew</h2><span class="chip ${st === "luft" ? "ok" : st === "pause" ? "warn" : "neutral"}">${stLabel}</span></div>
+  let h = `<section class="sec" id="sec-fluege"><div class="sec-h"><h2><span class="k">04</span>Flug &amp; Crew</h2><span class="chip ${st === "luft" ? "ok" : st === "pause" ? "warn" : "neutral"}">${stLabel}</span></div>
     <div class="grid">
       <label class="f w2"><span>Drohne</span><select id="fl-drone" data-drone ${dis}>${droneOptions(droneSel)}</select></label>
       <div class="f"><span class="wx-l">Start</span><div class="mono" style="font-size:18px">${first && first.start ? esc(first.start) : "–"}</div></div>
@@ -1388,6 +1511,7 @@ function vStamm() {
     </tbody></table></div>` : `<p class="muted">Noch keine Drohnen angelegt.</p>`}
   </section></div>`;
   h += vUsers();
+  h += `<p class="muted" style="font-size:12px">UAS-Flugbuch Version ${APP_VERSION}</p>`;
   return h;
 }
 function vUsers() {
@@ -1463,6 +1587,8 @@ document.addEventListener("change", e => {
     markDirty(); render(); return;
   }
   if (t.id === "clickType") { S.clickType = t.value; return; }
+  if (t.dataset.quelle && t.files && t.files.length) { const fs = [...t.files]; t.value = ""; addFotos(fs, t.dataset.quelle); return; }
+  if (t.dataset.foto && S.draft) { Store.upsert("fotos", t.dataset.foto, { beschreibung: t.value.trim() }); return; }
   if (t.id === "logoFile") { const file = t.files && t.files[0]; if (file) uploadLogo(file); return; }
   if (t.dataset.filter === "jahr") { S.filter.jahr = t.value; render(); return; }
   if (t.hasAttribute("data-hyear")) { S.hYear = t.value; render(); return; }
@@ -1624,6 +1750,10 @@ function act(a, b) {
     case "addmelde": { const n = $("#nm-name").value.trim(), t = $("#nm-tel").value.trim(); if (!n) { toast("Bitte eine Bezeichnung eingeben."); return; }
       Store.upsert("config", S.config.id || pbId(), { meldestellen: [...meldestellen(), { name: n, tel: t }] }).then(() => toast("Hinzugefügt")); break; }
     case "delmelde": { const l = meldestellen().slice(); l.splice(+b.dataset.i, 1); S.confirm = null; Store.upsert("config", S.config.id || pbId(), { meldestellen: l.length ? l : [] }).then(() => toast("Entfernt")); break; }
+    case "fotozoom": openZoom(b.dataset.id, !!b.dataset.local); break;
+    case "zoomclose": $("#zoom").hidden = true; $("#zoom img").removeAttribute("src"); break;
+    case "fotodel": S.confirm = null; Store.del("fotos", b.dataset.id).then(() => toast("Foto gelöscht")); break;
+    case "fotolocaldel": FotoQ.del(b.dataset.id).then(() => { render(); toast("Vom Gerät entfernt"); }); break;
     case "tocrew": { const el = document.getElementById("sec-fluege"); if (el) el.scrollIntoView({ behavior: "smooth" }); break; }
     case "pdf": reportPDF(); break;
     case "ppdf": personPDF(); break;
@@ -1656,6 +1786,19 @@ async function uploadLogo(file) {
   toast("Logo wird hochgeladen …");
   try { await Store.setLogo(file); toast("Logo gespeichert"); }
   catch (e) { toast("Hochladen fehlgeschlagen" + (e && e.status ? " (" + e.status + ")" : "") + "."); }
+}
+async function pdfImage(url) {
+  if (!url) return null;
+  try {
+    const res = await fetch(url); if (!res.ok) return null;
+    const blob = await res.blob(); const u = URL.createObjectURL(blob);
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = u; });
+    const k = Math.min(1, 1200 / Math.max(img.naturalWidth, img.naturalHeight));
+    const cv = document.createElement("canvas"); cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+    const cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(img, 0, 0, cv.width, cv.height);
+    URL.revokeObjectURL(u);
+    return { data: cv.toDataURL("image/jpeg", 0.8), w: cv.width, h: cv.height };
+  } catch (e) { return null; }
 }
 async function loadLogo() {
   if (!S.config.logoUrl) return null;
@@ -1766,6 +1909,29 @@ async function reportPDF() {
   if (m.auftrag) para(c, U ? "Übungsziel / Inhalte" : "Auftrag", m.auftrag);
   const plog = protoFor(m.id);
   if (plog.length) { sec(c, "Einsatzprotokoll"); table(c, ["Zeit", "Eintrag"], plog.map(x => [x.zeit, (x.tag ? x.tag + ": " : "") + x.text]), [16, 162]); }
+  const fts = fotosFor(m.id).slice().sort((a, b2) => (tmin(a.zeit) ?? 0) - (tmin(b2.zeit) ?? 0));
+  if (fts.length) {
+    toast("Bilder werden für das PDF geladen …");
+    try { await fileToken(); } catch (e) {}
+    sec(c, "Fotos & Screenshots");
+    const colW = (P.CW - 6) / 2; let col = 0, rowH = 0;
+    for (const ft of fts) {
+      const im = await pdfImage(fotoURL(ft, "1200x0"));
+      const cap = `${ft.zeit || ""} · ${QUELLE[ft.quelle] || "Foto"}${ft.beschreibung ? " – " + ft.beschreibung : ""}`;
+      let w = colW, h = im ? Math.min(78, colW * im.h / im.w) : 20; if (im && colW * im.h / im.w > 78) w = 78 * im.w / im.h;
+      const capLines = d.splitTextToSize(clean(cap), colW);
+      const need = h + 4 + capLines.length * 4 + 4;
+      if (col === 0 && ensure(c, need)) { }
+      if (col === 1 && c.y + need > P.BOT) { c.y += rowH; col = 0; rowH = 0; ensure(c, need); }
+      const x = P.ML + col * (colW + 6);
+      if (im) d.addImage(im.data, "JPEG", x, c.y, w, h); else { d.setDrawColor(...P.line); d.rect(x, c.y, colW, h); d.setFontSize(8); d.text("Bild nicht verfügbar", x + 3, c.y + 10); }
+      d.setFont("helvetica", "normal"); d.setFontSize(8.5); d.setTextColor(...P.ink); d.text(capLines, x, c.y + h + 4);
+      rowH = Math.max(rowH, need);
+      if (col === 1) { c.y += rowH; col = 0; rowH = 0; } else col = 1;
+    }
+    if (col === 1) c.y += rowH;
+    c.y += 2;
+  }
   const pos = (m.positions || []).filter(validPos);
   if (pos.length) {
     sec(c, "Positionen");

@@ -2,7 +2,8 @@
 
 Web-App für Einsatz- und Übungsberichte der Drohnengruppe: Positionen und Lageskizze,
 Flüge mit Crew-Rollen (Pilot, Spotter, Techniker, Verbindung EvD/FüGr), Einsatzprotokoll,
-Stunden- und Routine-Auswertung je Kamerad, PDF-Berichte. Läuft auf Tablet und Handy
+Stunden- und Routine-Auswertung je Kamerad, PDF-Berichte.
+Ab V2.0: Einsatzstellenfotos und Drohnen-Screenshots im Bericht (geschützt, auch offline erfassbar, im PDF). Läuft auf Tablet und Handy
 (zum Startbildschirm hinzufügen) und protokolliert auch ohne Netz weiter.
 
 ## Aufbau
