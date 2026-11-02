@@ -621,7 +621,8 @@ const Store = (() => {
       .filter(m => isAdmin() || m.status !== "abgeschlossen" || m._pending)
       .sort((a, b) => (b.datum || "").localeCompare(a.datum || "") || (b.beginn || "").localeCompare(a.beginn || ""));
     S.members = recs("members").map(r => ({ id: r.id, name: r.name || "", quali: r.quali || "", aktiv: r.aktiv !== false })).sort(byName);
-    S.drones = recs("drones").map(r => ({ id: r.id, name: r.name || "", typ: r.modell || "", kennung: r.kennung || "", aktiv: r.aktiv !== false })).sort(byName);
+    S.drones = recs("drones").map(r => ({ id: r.id, name: r.name || "", typ: r.modell || "", kennung: r.kennung || "", aktiv: r.aktiv !== false, standard: !!r.standard, privat: !!r.privat }))
+      .sort((a, b) => (b.standard - a.standard) || (a.privat - b.privat) || byName(a, b));
     const cf = recs("config")[0];
     S.config = cf ? { id: cf.id, einheit: cf.einheit || "", gruppe: cf.gruppe || "", routineMin30: cf.routineMin30 || "", routineMin90: cf.routineMin90 || "", meldestellen: Array.isArray(cf.meldestellen) ? cf.meldestellen : null,
       logoUrl: cf.logo && cf.collectionId ? pb.files.getURL(cf, cf.logo) : "" } : {};
@@ -990,6 +991,7 @@ function newDraft(typ, hash) {
   const n = S.missions.filter(m => m.typ === typ && (m.datum || "").startsWith(y)).length + 1;
   S.extraOpen = null;
   S.draft = {
+    droneId: standardDrone(),
     id: pbId(), _new: true, _hash: hash, typ, status: "entwurf",
     nr: `${y}-${typ === "uebung" ? "Ü" : "E"}${pad(n)}`, datum: today(), beginn: nowTime(), ende: "",
     stichwort: "", ort: "", anforderung: "", einsatzleiter: "", auftrag: "", luftraum: "",
@@ -1076,9 +1078,10 @@ function memberOptions(sel, exclude) {
   if (sel && !S.members.find(m => m.id === sel)) o += `<option value="${esc(sel)}" selected>(entfernt)</option>`;
   return o;
 }
+function standardDrone() { const d = S.drones.find(x => x.standard && x.aktiv !== false); return d ? d.id : (S.drones.filter(x => x.aktiv !== false && !x.privat).length === 1 ? S.drones.find(x => x.aktiv !== false && !x.privat).id : ""); }
 function droneOptions(sel) {
   const act = S.drones.filter(d => d.aktiv !== false || d.id === sel);
-  let o = `<option value="">– Drohne wählen –</option>` + act.map(d => `<option value="${esc(d.id)}" ${d.id === sel ? "selected" : ""}>${esc(d.name)}${d.kennung ? " · " + esc(d.kennung) : ""}</option>`).join("");
+  let o = `<option value="">– Drohne wählen –</option>` + act.map(d => `<option value="${esc(d.id)}" ${d.id === sel ? "selected" : ""}>${esc(d.name)}${d.kennung ? " · " + esc(d.kennung) : ""}${d.standard ? " (Standard)" : d.privat ? " (privat)" : ""}</option>`).join("");
   if (sel && !S.drones.find(d => d.id === sel)) o += `<option value="${esc(sel)}" selected>(entfernt)</option>`;
   return o;
 }
@@ -1271,10 +1274,12 @@ function vFlug() {
   const akku = fl.filter(f => f.pause).length, pw = fl.filter((f, i) => i > 0 && f.wechsel).length;
   const crewIdx = (st === "luft" || !d.nextCrew) && last ? String(fl.length - 1) : "next";
   const stLabel = { boden: "Noch nicht gestartet", luft: "In der Luft", pause: "Gelandet – Akkuwechsel", ende: "Flug beendet" }[st];
+  if (!(last && last.droneId) && !d.droneId && standardDrone()) d.droneId = standardDrone();
   const droneSel = (last && last.droneId) || d.droneId || "";
+  const dr = S.drones.find(x => x.id === droneSel);
   let h = `<section class="sec" id="sec-fluege"><div class="sec-h"><h2><span class="k">04</span>Flug &amp; Crew</h2><span class="chip ${st === "luft" ? "ok" : st === "pause" ? "warn" : "neutral"}">${stLabel}</span></div>
     <div class="grid">
-      <label class="f w2"><span>Drohne</span><select id="fl-drone" data-drone ${dis}>${droneOptions(droneSel)}</select></label>
+      <label class="f w2"><span>Drohne</span><select id="fl-drone" data-drone ${dis} class="${droneSel ? "" : "req"}">${droneOptions(droneSel)}</select>${dr && dr.privat && d.typ !== "uebung" ? `<span class="chip warn" style="justify-self:start">Private Drohne im Einsatz</span>` : ""}</label>
       <div class="f"><span class="wx-l">Start</span><div class="mono" style="font-size:18px">${first && first.start ? esc(first.start) : "–"}</div></div>
       <div class="f"><span class="wx-l">Ende</span><div class="mono" style="font-size:18px">${st === "ende" && last ? esc(last.landung) : "–"}</div></div>
       <div class="f"><span class="wx-l">Flugzeit</span><div class="mono" style="font-size:18px">${fmtH(missionFlightMin(d))} h</div></div>
@@ -1565,12 +1570,14 @@ function vStamm() {
   // Drohnen
   h += `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Drohnen</h2><span class="muted">${S.drones.length}</span></div>
     ${dis ? "" : `<div class="row"><input id="newDrone" placeholder="Bezeichnung, z. B. UAS 1" style="flex:1 1 140px;width:auto"><input id="newDroneT" placeholder="Modell, z. B. DJI Matrice 30T" style="flex:2 1 180px;width:auto"><input id="newDroneK" placeholder="Kennung / Seriennr." class="mono" style="flex:1 1 140px;width:auto"><button class="primary" data-act="adddrone">Hinzufügen</button></div>`}
-    ${S.drones.length ? `<div class="tbl-wrap"><table><thead><tr><th>Bezeichnung</th><th>Modell</th><th>Kennung / Seriennr.</th><th></th></tr></thead><tbody>
+    ${S.drones.length ? `<div class="tbl-wrap"><table><thead><tr><th>Bezeichnung</th><th>Modell</th><th>Kennung / Seriennr.</th><th>Standard</th><th>Privat</th><th></th></tr></thead><tbody>
     ${S.drones.map(d => `<tr><td><input id="dn-${esc(d.id)}" data-dr="${esc(d.id)}" data-field="name" value="${esc(d.name)}" ${dis}></td>
       <td><input id="dt-${esc(d.id)}" data-dr="${esc(d.id)}" data-field="typ" value="${esc(d.typ || "")}" ${dis}></td>
       <td><input id="dk-${esc(d.id)}" class="mono" data-dr="${esc(d.id)}" data-field="kennung" value="${esc(d.kennung || "")}" ${dis}></td>
+      <td><input type="radio" name="drstd" id="ds-${esc(d.id)}" data-drstd="${esc(d.id)}" ${d.standard ? "checked" : ""} ${dis} aria-label="Standard-Drohne"></td>
+      <td><input type="checkbox" id="dp-${esc(d.id)}" data-drpriv="${esc(d.id)}" ${d.privat ? "checked" : ""} ${dis} aria-label="Private Drohne"></td>
       <td class="r" style="white-space:nowrap">${dis ? "" : (usedD.has(d.id) ? `<button class="sm ghost" data-act="toggledrone" data-id="${esc(d.id)}">${d.aktiv === false ? "Aktivieren" : "Außer Dienst"}</button>` : (S.confirm === "d-" + d.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="deldrone" data-id="${esc(d.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="d-${esc(d.id)}">Löschen</button>`))}</td></tr>`).join("")}
-    </tbody></table></div>` : `<p class="muted">Noch keine Drohnen angelegt.</p>`}
+    </tbody></table></div><p class="muted" style="font-size:13px">Die <b>Standard</b>-Drohne (z. B. die Drohne der FFW VS) ist in jedem neuen Bericht vorausgewählt. <b>Private</b> Drohnen stehen in der Auswahl unten und müssen bewusst gewählt werden; im Einsatz erscheint ein Hinweis.</p>` : `<p class="muted">Noch keine Drohnen angelegt.</p>`}
   </section></div>`;
   h += vUsers();
   h += `<p class="muted" style="font-size:12px">UAS-Flugbuch Version ${APP_VERSION}</p>`;
@@ -1631,7 +1638,7 @@ document.addEventListener("change", e => {
     if (/^positions\.\d+\.label$/.test(t.dataset.b)) drawScreenSketch();
     return;
   }
-  if (t.hasAttribute("data-drone") && S.draft) { S.draft.droneId = t.value; (S.draft.flights || []).forEach(f => f.droneId = t.value); markDirty(); return; }
+  if (t.hasAttribute("data-drone") && S.draft) { S.draft.droneId = t.value; (S.draft.flights || []).forEach(f => f.droneId = t.value); S.dirty = true; render(); return; }
   if (t.dataset.crew != null && S.draft) {
     const dd = S.draft; if (t.dataset.crew === "next" && !dd.nextCrew) dd.nextCrew = clone(curCrew(dd));
     const f = t.dataset.crew === "next" ? { get crew() { return dd.nextCrew; }, set crew(v) { dd.nextCrew = v; } } : dd.flights[+t.dataset.crew]; const k = t.dataset.role;
@@ -1664,6 +1671,8 @@ document.addEventListener("change", e => {
     l[i][t.dataset.field] = v; Store.upsert("config", S.config.id || pbId(), { meldestellen: l }).then(() => toast("Gespeichert")); return;
   }
   if (t.dataset.mem && isAdmin()) { const v = t.value.trim(); if (t.dataset.field === "name" && !v) { toast("Name darf nicht leer sein."); render(); return; } Store.upsert("members", t.dataset.mem, { [t.dataset.field]: v }).then(() => toast("Gespeichert")); return; }
+  if (t.dataset.drstd && isAdmin()) { S.drones.forEach(x => { if (x.standard && x.id !== t.dataset.drstd) Store.upsert("drones", x.id, { standard: false }); }); Store.upsert("drones", t.dataset.drstd, { standard: true, privat: false }).then(() => toast("Standard-Drohne gesetzt")); return; }
+  if (t.dataset.drpriv && isAdmin()) { Store.upsert("drones", t.dataset.drpriv, t.checked ? { privat: true, standard: false } : { privat: false }).then(() => toast("Gespeichert")); return; }
   if (t.dataset.dr && isAdmin()) { const v = t.value.trim(); if (t.dataset.field === "name" && !v) { toast("Bezeichnung darf nicht leer sein."); render(); return; } Store.upsert("drones", t.dataset.dr, { [t.dataset.field === "typ" ? "modell" : t.dataset.field]: v }).then(() => toast("Gespeichert")); return; }
 });
 document.addEventListener("keydown", e => {
@@ -1688,6 +1697,8 @@ function act(a, b) {
     case "nodelete": S.confirm = null; actions(); break;
     case "dodelete": { const id = d.id; S.dirty = false; S.draft = null; S.confirm = null; Store.del("missions", id); toast("Bericht gelöscht"); location.hash = "einsaetze"; break; }
     case "close": {
+      const fs0 = flugState(d);
+      if (fs0 === "luft" || fs0 === "pause") { toast(fs0 === "luft" ? "Die Drohne ist laut Protokoll noch in der Luft. Bitte erst landen und „■ Flug beenden“ tippen." : "Der Flug ist noch nicht beendet (Akkuwechsel). Bitte im Protokoll „■ Flug beenden“ tippen."); const el = document.querySelector("[data-act=logland]"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
       const miss = (d.flights || []).findIndex(f => !(f.crew || []).some(c => c.role === "pilot" && c.memberId));
       if (miss >= 0) { toast(`Im Flugverlauf fehlt ein Pilot (Abschnitt ${miss + 1}). Bitte eintragen, dann abschließen.`); const el = document.getElementById("flight-" + miss); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
       S.confirm = "close"; actions(); break;
@@ -1745,7 +1756,7 @@ function act(a, b) {
       pilot = ($("#startPilot") || {}).value || ""; if (!pilot) { toast("Bitte zuerst den Piloten wählen."); return; }
       S.askPilot = null;
       const t = nowTime();
-      const f = { id: uid("f"), droneId: (prev && prev.droneId) || d.droneId || (S.drones.filter(x => x.aktiv !== false).length === 1 ? S.drones.find(x => x.aktiv !== false).id : ""), start: t, landung: "", akkus: "1", crew: clone(crew0).filter(c => c.role !== "pilot"), bemerkung: "" };
+      const f = { id: uid("f"), droneId: (prev && prev.droneId) || d.droneId || standardDrone(), start: t, landung: "", akkus: "1", crew: clone(crew0).filter(c => c.role !== "pilot"), bemerkung: "" };
       f.crew = f.crew.filter(c => c.memberId !== pilot); f.crew.unshift({ memberId: pilot, role: "pilot" });
       d.flights.push(f); delete d.nextCrew; S.dirty = true;
       logPush(`${prev ? "Flug wieder aufgenommen" : "Flug gestartet"} (Pilot: ${memberName(pilot)})`, "Start", t); break;
