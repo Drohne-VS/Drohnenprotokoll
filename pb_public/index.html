@@ -220,7 +220,15 @@ tfoot td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: 0;
 .wx-l { font: 600 13px/1 var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .pick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .melde { display: grid; gap: 6px; }
-.melde-r { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
+.melde-g { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 520px) { .melde-g { grid-template-columns: minmax(0, 1fr); } }
+.melde-t { position: relative; display: grid; }
+.melde-t .chk { width: 100%; justify-content: flex-start; text-align: left; padding: 10px 84px 10px 10px; min-height: 58px; }
+.mt { display: grid; gap: 2px; min-width: 0; }
+.mn { font-weight: 600; line-height: 1.2; }
+.mtel { font: 400 13px/1.2 var(--f-mono); color: var(--muted); }
+.chk[aria-pressed="true"] .mtel { color: var(--ink); }
+.melde-t .call { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 12.5px; font-weight: 600; color: var(--chart); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 8px; background: var(--surface); text-decoration: none; }
 .chk { gap: 10px; font-weight: 600; background: var(--bg); padding: 9px 14px 9px 10px; }
 .chk .box { width: 20px; height: 20px; border: 2px solid var(--muted); border-radius: 4px; display: inline-grid; place-items: center; font-size: 14px; line-height: 1; }
 .chk[aria-pressed="true"] { border-color: var(--ok); background: var(--ok-soft); }
@@ -1086,9 +1094,10 @@ function vEdit() {
   </div>
   <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis}>${esc(o)}</button>`).join("")}</div></div>`).join("")}</div>
   <div class="melde"><span class="wx-l">Über den Flug informiert</span>
-    ${meldestellen().map((s, i) => { const t = (d.meldungen || {})[s.name];
-      return `<div class="melde-r"><button type="button" class="chk" data-act="melde" data-i="${i}" ${dis} aria-pressed="${!!t}"><span class="box">${t ? "✓" : ""}</span>${esc(s.name)}</button>
-        ${t ? `<span class="mono muted">${esc(t)} Uhr</span>` : ""}${s.tel ? `<a class="tel" href="${telHref(s.tel)}">${esc(s.tel)}</a>` : ""}</div>`; }).join("")}
+    <div class="melde-g">${meldestellen().map((s, i) => { const t = (d.meldungen || {})[s.name];
+      return `<div class="melde-t"><button type="button" class="chk" data-act="melde" data-i="${i}" ${dis} aria-pressed="${!!t}"><span class="box">${t ? "✓" : ""}</span>
+        <span class="mt"><span class="mn">${esc(s.name)}</span><span class="mtel">${esc(s.tel || "")}${t ? ` · <b>${esc(t)} Uhr</b>` : ""}</span></span></button>
+        ${s.tel ? `<a class="call" href="${telHref(s.tel)}" aria-label="${esc(s.name)} anrufen" title="Anrufen">Anrufen</a>` : ""}</div>`; }).join("")}</div>
   </div>
   </section>`;
   // 2 Protokoll – Hauptarbeitsbereich des Technikers
