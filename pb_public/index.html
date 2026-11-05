@@ -8,9 +8,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Drohne-VS-Protokoll">
-<link rel="manifest" href="manifest.webmanifest?v=2">
-<link rel="icon" href="icon-192.png?v=2" type="image/png">
-<link rel="apple-touch-icon" href="icon-180.png?v=2">
+<link rel="manifest" href="manifest.webmanifest?v=3">
+<link rel="icon" href="icon-192.png?v=3" type="image/png">
+<link rel="apple-touch-icon" href="icon-180.png?v=3">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <script src="vendor/pocketbase.umd.js"></script>
@@ -66,7 +66,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .top-in, .main { max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .top-in { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; padding-block: 10px 0; }
 .brand { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; min-width: 0; }
-.brand-mark { width: 34px; height: 34px; flex: none; border-radius: 8px; }
+.brand-mark { width: 34px; height: 34px; flex: none; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
 .brand-logo { height: 40px; width: auto; max-width: 120px; flex: none; object-fit: contain; }
 .logo-box { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
 .logo-prev { width: 96px; height: 96px; border: 1px dashed var(--line); border-radius: var(--r); display: grid; place-items: center; background: var(--bg); overflow: hidden; }
@@ -301,7 +301,7 @@ details.extra[open] { display: grid; gap: 14px; }
   <div class="top-in">
     <div class="brand">
       <img class="brand-logo" id="unitLogo" alt="" hidden>
-      <img class="brand-mark" id="unitMark" src="icon-192.png?v=2" alt="">
+      <img class="brand-mark" id="unitMark" src="icon-192.png?v=3" alt="">
       <div style="min-width:0">
         <div class="brand-t">Drohne-VS-Protokoll</div>
         <div class="brand-s" id="unitName">Drohnengruppe</div>
