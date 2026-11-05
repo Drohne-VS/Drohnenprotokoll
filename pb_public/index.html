@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>UAS-Flugbuch Feuerwehr</title>
+<title>Drohne-VS-Protokoll</title>
 <meta name="theme-color" content="#AF2B1E">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="UAS-Flugbuch">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icon-192.png" type="image/png">
-<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-title" content="Drohne-VS-Protokoll">
+<link rel="manifest" href="manifest.webmanifest?v=2">
+<link rel="icon" href="icon-192.png?v=2" type="image/png">
+<link rel="apple-touch-icon" href="icon-180.png?v=2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <script src="vendor/pocketbase.umd.js"></script>
@@ -66,7 +66,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .top-in, .main { max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .top-in { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; padding-block: 10px 0; }
 .brand { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; min-width: 0; }
-.brand-mark { width: 30px; height: 30px; flex: none; }
+.brand-mark { width: 34px; height: 34px; flex: none; border-radius: 8px; }
 .brand-logo { height: 40px; width: auto; max-width: 120px; flex: none; object-fit: contain; }
 .logo-box { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
 .logo-prev { width: 96px; height: 96px; border: 1px dashed var(--line); border-radius: var(--r); display: grid; place-items: center; background: var(--bg); overflow: hidden; }
@@ -301,15 +301,9 @@ details.extra[open] { display: grid; gap: 14px; }
   <div class="top-in">
     <div class="brand">
       <img class="brand-logo" id="unitLogo" alt="" hidden>
-      <svg class="brand-mark" id="unitMark" viewBox="0 0 32 32" aria-hidden="true">
-        <g fill="none" stroke="var(--ink)" stroke-width="2">
-          <circle cx="7" cy="7" r="4.5"/><circle cx="25" cy="7" r="4.5"/><circle cx="7" cy="25" r="4.5"/><circle cx="25" cy="25" r="4.5"/>
-          <path d="M10.5 10.5 L21.5 21.5 M21.5 10.5 L10.5 21.5"/>
-        </g>
-        <rect x="12" y="12" width="8" height="8" rx="1.5" fill="var(--accent)"/>
-      </svg>
+      <img class="brand-mark" id="unitMark" src="icon-192.png?v=2" alt="">
       <div style="min-width:0">
-        <div class="brand-t">UAS-Flugbuch</div>
+        <div class="brand-t">Drohne-VS-Protokoll</div>
         <div class="brand-s" id="unitName">Drohnengruppe</div>
       </div>
     </div>
@@ -879,7 +873,7 @@ function vAuth() {
   if (S.auth === "checking") return `<div class="auth"><div class="sheet sec"><h2>Verbinde …</h2></div></div>`;
   const setup = S.auth === "setup";
   return `<div class="auth"><form class="sheet sec" id="authForm" autocomplete="on">
-    <div><h1>${setup ? "Ersteinrichtung" : "Anmelden"}</h1><p class="sub muted">${setup ? "Lege den Admin-Zugang an. Das ist einmalig nötig; danach meldest du dich nur noch an und legst in den Stammdaten den Tablet-Zugang an." : "UAS-Flugbuch der Drohnengruppe"}</p></div>
+    <div><h1>${setup ? "Ersteinrichtung" : "Anmelden"}</h1><p class="sub muted">${setup ? "Lege den Admin-Zugang an. Das ist einmalig nötig; danach meldest du dich nur noch an und legst in den Stammdaten den Tablet-Zugang an." : "Drohne-VS-Protokoll der Drohnengruppe"}</p></div>
     ${S.authErr ? `<div class="banner warn">${esc(S.authErr)}</div>` : ""}
     ${setup ? `<label class="f"><span>Einrichtungscode</span><input id="a-code" class="mono" required autocomplete="off" placeholder="steht in der Nachricht von Claude" value="${esc((S.authForm || {}).code || "")}"></label>
       <label class="f"><span>Dein Name</span><input id="a-name" required placeholder="z. B. Michael Grießhaber" autocomplete="name" value="${esc((S.authForm || {}).name || "")}"></label>` : ""}
@@ -1586,7 +1580,7 @@ function vStamm() {
     </tbody></table></div><p class="muted" style="font-size:13px">Die <b>Standard</b>-Drohne (z. B. die Drohne der FFW VS) ist in jedem neuen Bericht vorausgewählt. <b>Private</b> Drohnen stehen in der Auswahl unten und müssen bewusst gewählt werden; im Einsatz erscheint ein Hinweis.</p>` : `<p class="muted">Noch keine Drohnen angelegt.</p>`}
   </section></div>`;
   h += vUsers();
-  h += `<p class="muted" style="font-size:12px">UAS-Flugbuch Version ${APP_VERSION}</p>`;
+  h += `<p class="muted" style="font-size:12px">Drohne-VS-Protokoll · Version ${APP_VERSION}</p>`;
   return h;
 }
 function vUsers() {
