@@ -1,4 +1,6 @@
-# UAS-Flugbuch – Drohnengruppe Feuerwehr Villingen-Schwenningen
+# Drohne-VS-Protokoll – Drohnengruppe Feuerwehr Villingen-Schwenningen
+
+Ausführliche Projektbeschreibung mit allen Festlegungen: **[PROJEKT.md](PROJEKT.md)**
 
 Web-App für Einsatz- und Übungsberichte der Drohnengruppe: Positionen und Lageskizze,
 Flüge mit Crew-Rollen (Pilot, Spotter, Techniker, Verbindung EvD/FüGr), Einsatzprotokoll,
