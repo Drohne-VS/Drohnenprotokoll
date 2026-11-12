@@ -58,4 +58,4 @@ onRecordUpdateRequest((e) => {
 onRecordCreateRequest((e) => {
   if (e.auth) e.record.set("autor", e.auth.id);
   return e.next();
-}, "protokoll", "fotos");
+}, "protokoll", "fotos", "pilotsperren");

@@ -594,7 +594,7 @@ const pbId = () => { const a = "abcdefghijklmnopqrstuvwxyz0123456789"; const r =
 const me = () => pb.authStore.record || null;
 const isAdmin = () => !!me() && me().role === "admin";
 const isTablet = () => !!me() && me().role === "tablet";
-const COLS = ["config", "members", "drones", "missions", "protokoll", "fotos"];
+const COLS = ["config", "members", "drones", "missions", "protokoll", "fotos", "pilotsperren"];
 
 const Store = (() => {
   let cache = {}, outbox = [], flushing = false, subscribed = false, timer = null;
@@ -614,7 +614,9 @@ const Store = (() => {
     S.missions = recs("missions").map(r => ({ ...(r.data || {}), id: r.id, typ: r.typ, status: r.status, datum: r.datum, updatedAt: r.updated || null, _pending: !!r._pending }))
       .filter(m => isAdmin() || m.status !== "abgeschlossen" || m._pending)
       .sort((a, b) => (b.datum || "").localeCompare(a.datum || "") || (b.beginn || "").localeCompare(a.beginn || ""));
-    S.members = recs("members").map(r => ({ id: r.id, name: r.name || "", quali: r.quali || "", aktiv: r.aktiv !== false })).sort(byName);
+    S.members = recs("members").map(r => ({ id: r.id, name: r.name || "", quali: r.quali || "", aktiv: r.aktiv !== false, gesperrt: !!r.pilotGesperrt })).sort(byName);
+    S.sperren = recs("pilotsperren").map(r => ({ id: r.id, member: r.member, grund: r.grund || "", seit: r.seit || "", bis: r.bis || "", aufhebung: r.aufhebung || "", created: r.created || "" }))
+      .sort((a, b) => String(b.seit + b.created).localeCompare(String(a.seit + a.created)));
     S.drones = recs("drones").map(r => ({ id: r.id, name: r.name || "", typ: r.modell || "", kennung: r.kennung || "", aktiv: r.aktiv !== false, standard: !!r.standard, privat: !!r.privat }))
       .sort((a, b) => (b.standard - a.standard) || (a.privat - b.privat) || byName(a, b));
     const cf = recs("config")[0];
@@ -1217,7 +1219,7 @@ function crewSlots(idx, crew, dis) {
   const pil = (crew.find(x => x.role === "pilot") || {}).memberId;
   return ROLES.map(r => { const c = crew.find(x => x.role === r.k) || {}; return `<div class="slot">
     <div class="sl">${r.l}<small>${r.hint}</small></div>
-    <select id="cr-${idx}-${r.k}" data-crew="${idx}" data-role="${r.k}" ${dis} ${r.k === "pilot" ? `class="${c.memberId ? "" : "req"}"` : ""}>${r.k === "pilot" ? memberOptions(c.memberId).replace("– Person wählen –", "– Pilot wählen (Pflicht) –") : memberOptions(c.memberId, pil).replace("– Person wählen –", "– nicht besetzt –")}</select></div>`; }).join("");
+    <select id="cr-${idx}-${r.k}" data-crew="${idx}" data-role="${r.k}" ${dis} ${r.k === "pilot" ? `class="${c.memberId ? "" : "req"}"` : ""}>${r.k === "pilot" ? pilotOptions(S.draft, c.memberId, "– Pilot wählen (Pflicht) –") : memberOptions(c.memberId, pil).replace("– Person wählen –", "– nicht besetzt –")}</select></div>`; }).join("");
 }
 const ORT = { einsatzstelle: "An der Einsatzstelle", wache: "Auf Wache" };
 function kraefte(d) {
@@ -1232,11 +1234,12 @@ function availLabel(d, id) {
   const r = kraefte(d).find(x => x.memberId === id); if (!r) return "";
   return r.bis ? "entlassen" : r.crew ? "in der Crew" : r.ort === "wache" ? "auf Wache" : "verfügbar vor Ort";
 }
+const isGesperrt = id => !!(S.members.find(m => m.id === id) || {}).gesperrt;
 function pilotOptions(d, sel, placeholder) {
   // verfügbare Kräfte vor Ort zuerst, dann Crew, dann Wache, dann alle übrigen Mitglieder
   const rank = id => { const l = availLabel(d, id); return l === "verfügbar vor Ort" ? 0 : l === "in der Crew" ? 1 : l === "auf Wache" ? 2 : l === "entlassen" ? 4 : 3; };
   const list = S.members.filter(m => m.aktiv !== false || m.id === sel).slice().sort((a, b) => rank(a.id) - rank(b.id) || byName(a, b));
-  return `<option value="">${placeholder}</option>` + list.map(m => { const l = availLabel(d, m.id); return `<option value="${esc(m.id)}" ${m.id === sel ? "selected" : ""}>${esc(m.name)}${l ? " – " + l : ""}</option>`; }).join("");
+  return `<option value="">${placeholder}</option>` + list.map(m => { const l = m.gesperrt ? "als Pilot gesperrt" : availLabel(d, m.id); return `<option value="${esc(m.id)}" ${m.id === sel ? "selected" : ""} ${m.gesperrt && m.id !== sel ? "disabled" : ""}>${esc(m.name)}${l ? " – " + l : ""}</option>`; }).join("");
 }
 function vKraefte() {
   const d = S.draft, U = d.typ === "uebung", dis = ro() ? "disabled" : "";
@@ -1280,6 +1283,7 @@ function vFlug() {
       <div class="f"><span class="wx-l">Flugzeit</span><div class="mono" style="font-size:18px">${fmtH(missionFlightMin(d))} h</div></div>
       <div class="f"><span class="wx-l">Akkuwechsel / Pilotenwechsel</span><div class="mono" style="font-size:18px">${akku} / ${pw}</div></div>
     </div>
+    ${(() => { const p = (curCrew(d).find(c => c.role === "pilot") || {}).memberId; return p && isGesperrt(p) && d.status !== "abgeschlossen" ? `<div class="banner warn">${esc(memberName(p))} ist inzwischen als Pilot gesperrt. Bitte über „⇄ Pilotenwechsel“ eine andere Person einsetzen.</div>` : ""; })()}
     <div class="crew"><h3>${crewIdx === "next" && st !== "boden" ? "Crew nach dem Wechsel" : "Crew"}</h3>${crewSlots(crewIdx, curCrew(d), dis)}${crewNote({ crew: curCrew(d) })}</div>`;
   if (fl.length) h += `<h3>Verlauf</h3><div class="tbl-wrap"><table class="verlauf"><thead><tr><th>Von</th><th>Bis</th><th>Pilot</th><th>Spotter</th><th class="r">Dauer</th><th>Anlass</th>${isAdmin() ? "<th></th>" : ""}</tr></thead><tbody>
     ${fl.map((f, i) => { const p = (f.crew || []).find(c => c.role === "pilot"), s2 = (f.crew || []).find(c => c.role === "beob");
@@ -1484,7 +1488,7 @@ function vRoutine() {
       const pe = sumBy(p12, x => x.typ !== "uebung"), pu = sumBy(p12, x => x.typ === "uebung");
       const einsPilot = new Set(p12.filter(x => x.typ !== "uebung").map(x => x.missionId)).size;
       const onlyU = p12.length && !pe.n;
-      return `<tr><td>${personLink(m.id, m.name)}${onlyU ? ` <span class="chip neutral" title="In den letzten 12 Monaten nur in Übungen als Pilot geflogen">nur Übung</span>` : ""}</td><td>${rChip(r.status)}</td>
+      return `<tr><td>${personLink(m.id, m.name)}${m.gesperrt ? ` <span class="chip bad">Pilot gesperrt</span>` : ""}${onlyU ? ` <span class="chip neutral" title="In den letzten 12 Monaten nur in Übungen als Pilot geflogen">nur Übung</span>` : ""}</td><td>${rChip(r.status)}</td>
       <td class="r mono">${fmtH(r.a)} ${bar(r.a, r.m30)}</td>
       <td class="r mono">${fmtH(r.b)} ${bar(r.b, r.m90)}</td>
       <td class="r mono">${fmtH(pe.min)} <span class="muted">/</span> ${fmtH(pu.min)}</td>
@@ -1495,6 +1499,22 @@ function vRoutine() {
   <p class="muted" style="font-size:13px">Grün: beide Mindestzeiten erfüllt. Gelb: im 90-Tage-Zeitraum geflogen, aber zu wenig. Rot: in 90 Tagen nicht als Pilot geflogen. Einsatz- und Übungsflüge zählen gleich. „nur Übung“ markiert, wer in 12 Monaten keinen Einsatzflug als Pilot hatte.</p>
   </section></div>`;
   return h;
+}
+function vSperre(m) {
+  const akt = S.sperren.find(x => x.member === m.id && !x.bis), hist = S.sperren.filter(x => x.member === m.id && x.bis);
+  let h = `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Pilotenfreigabe</h2>${m.gesperrt ? `<span class="chip bad">Als Pilot gesperrt</span>` : `<span class="chip ok">Darf als Pilot fliegen</span>`}</div>`;
+  if (m.gesperrt) {
+    h += `<p>${akt ? `Gesperrt seit <b>${fmtDate(akt.seit)}</b>${akt.grund ? ` – Grund: ${esc(akt.grund.replace(/[.!]$/, ""))}` : ""}.` : "Gesperrt."} In Einsätzen und Übungen kann ${esc(m.name)} nicht als Pilot eingesetzt werden; alle anderen Positionen bleiben möglich.</p>`;
+    h += S.lockForm === "un-" + m.id ? `<div class="askpil"><label class="f"><span>Sperre aufheben – Vermerk (optional)</span><input id="unlockText" placeholder="z. B. Übungsflüge nachgeholt, Überprüfungsflug bestanden"></label><button class="go" data-act="dounlock" data-id="${esc(m.id)}">Sperre aufheben</button><button class="ghost" data-act="nolock">Abbrechen</button></div>`
+      : `<div><button data-act="unlockform" data-id="${esc(m.id)}">Sperre aufheben …</button></div>`;
+  } else {
+    h += `<p class="muted" style="font-size:13.5px">Wenn jemand z. B. in einer Übung zu unsicher war oder seine Flugstunden noch nachholen muss, kannst du ihn für die Pilotenposition sperren. Er bleibt für Spotter, Techniker und Verbindung einsetzbar.</p>`;
+    h += S.lockForm === "lk-" + m.id ? `<div class="askpil" style="border-color:var(--accent);background:var(--accent-soft)"><label class="f"><span>Grund der Sperre</span><input id="lockText" placeholder="z. B. Unsicherheit bei Übung, Flugstunden nachholen"></label><button class="stop" data-act="dolock" data-id="${esc(m.id)}">Als Pilot sperren</button><button class="ghost" data-act="nolock">Abbrechen</button></div>`
+      : `<div><button class="danger" data-act="lockform" data-id="${esc(m.id)}">Als Pilot sperren …</button></div>`;
+  }
+  if (hist.length) h += `<h3>Frühere Sperren</h3><div class="tbl-wrap"><table><thead><tr><th>Von</th><th>Bis</th><th>Grund</th><th>Aufhebung</th></tr></thead><tbody>${hist.map(x => `<tr><td class="mono">${fmtDate(x.seit)}</td><td class="mono">${fmtDate(x.bis)}</td><td>${esc(x.grund || "–")}</td><td>${esc(x.aufhebung || "–")}</td></tr>`).join("")}</tbody></table></div>`;
+  h += `<p class="muted" style="font-size:12.5px">Gründe und Verlauf sieht nur der Admin; auf dem Tablet erscheint lediglich „als Pilot gesperrt“.</p>`;
+  return h + `</section></div>`;
 }
 function vPerson() {
   const m = S.members.find(x => x.id === S.personId);
@@ -1514,6 +1534,7 @@ function vPerson() {
   else if (r.status === "gelb") msg = `${fmtH(r.a)} h in 30 Tagen, ${fmtH(r.b)} h in 90 Tagen. Es fehlen noch ${fehlt}.${r.until ? ` Ohne weiteren Flug ab ${fmtDate(r.until)} keine Routine mehr.` : ""}`;
   else if (r.status === "rot") msg = `Letzter Pilotenflug am ${fmtDate(r.last)} (vor ${daysSince(r.last)} Tagen). Für „In Übung“ braucht es ${r.m30} Min. in 30 und ${r.m90} Min. in 90 Tagen – gut für die nächste Übung einplanen.`;
   else msg = "Bisher kein Flug als Pilot erfasst.";
+  h += vSperre(m);
   h += `<div class="banner ${r.status === "gruen" ? "info" : "warn"}"><span class="dot ${r.status}"></span>${esc(msg)}</div>`;
   h += `<div class="stats">
     <div class="stat"><div class="l">Pilot 30 Tage</div><div class="v">${fmtH(r.a)} <small>/ ${fmtH(r.m30)} h</small></div></div>
@@ -1563,7 +1584,7 @@ function vStamm() {
     ${S.members.length ? `<div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Qualifikation / Nachweise</th><th>Status</th><th></th></tr></thead><tbody>
     ${S.members.map(m => `<tr><td><input id="mn-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="name" value="${esc(m.name)}" ${dis}></td>
       <td><input id="mq-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="quali" value="${esc(m.quali || "")}" placeholder="–" ${dis}></td>
-      <td>${m.aktiv === false ? `<span class="chip neutral">Inaktiv</span>` : `<span class="chip ok">Aktiv</span>`}</td>
+      <td><div class="row" style="gap:4px">${m.aktiv === false ? `<span class="chip neutral">Inaktiv</span>` : `<span class="chip ok">Aktiv</span>`}${m.gesperrt ? `<a class="chip bad" href="#p-${esc(m.id)}" style="text-decoration:none">Pilot gesperrt</a>` : ""}</div></td>
       <td class="r" style="white-space:nowrap">${dis ? "" : `<button class="sm ghost" data-act="togglemember" data-id="${esc(m.id)}">${m.aktiv === false ? "Aktivieren" : "Inaktiv setzen"}</button>${used.has(m.id) ? "" : (S.confirm === "m-" + m.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="delmember" data-id="${esc(m.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="m-${esc(m.id)}">Löschen</button>`)}`}</td></tr>`).join("")}
     </tbody></table></div><p class="muted" style="font-size:13px">Wer schon in Berichten vorkommt, kann nur inaktiv gesetzt werden – so bleiben die Stunden erhalten.</p>` : `<p class="muted">Noch keine Mitglieder. Trage hier alle ein, die als Pilot, Beobachter oder Helfer im Bericht auftauchen sollen.</p>`}
   </section></div>`;
@@ -1646,6 +1667,7 @@ document.addEventListener("change", e => {
   if (t.dataset.crew != null && S.draft) {
     const dd = S.draft; if (t.dataset.crew === "next" && !dd.nextCrew) dd.nextCrew = clone(curCrew(dd));
     const f = t.dataset.crew === "next" ? { get crew() { return dd.nextCrew; }, set crew(v) { dd.nextCrew = v; } } : dd.flights[+t.dataset.crew]; const k = t.dataset.role;
+    if (k === "pilot" && t.value && isGesperrt(t.value)) { toast(`${memberName(t.value)} ist als Pilot gesperrt.`); render(); return; }
     if (k === "pilot" && !t.value && (f.crew || []).some(c => c.role === "pilot" && c.memberId)) { toast("Der Pilot kann nicht leer bleiben – bitte eine andere Person wählen."); render(); return; }
     const pilNow = ((f.crew || []).find(c => c.role === "pilot") || {}).memberId;
     if (k !== "pilot" && t.value && t.value === pilNow) { toast("Der Pilot kann keine weitere Position übernehmen."); render(); return; }
@@ -1682,6 +1704,8 @@ document.addEventListener("change", e => {
 document.addEventListener("keydown", e => {
   if (e.key === "Enter" && (e.target.id === "newMember" || e.target.id === "newMemberQ")) { e.preventDefault(); act("addmember", e.target); }
   if (e.key === "Enter" && /^newDrone/.test(e.target.id)) { e.preventDefault(); act("adddrone", e.target); }
+  if (e.key === "Enter" && e.target.id === "lockText") { e.preventDefault(); act("dolock", document.querySelector("[data-act=dolock]")); }
+  if (e.key === "Enter" && e.target.id === "unlockText") { e.preventDefault(); act("dounlock", document.querySelector("[data-act=dounlock]")); }
   if (e.key === "Enter" && e.target.id === "auftragText") { e.preventDefault(); act("doauftrag", e.target); }
   if (e.key === "Enter" && e.target.id === "logText") { e.preventDefault(); act("logadd", e.target); }
 });
@@ -1758,6 +1782,7 @@ function act(a, b) {
       let pilot = (crew0.find(c => c.role === "pilot" && c.memberId) || {}).memberId || "";
       if (!b.dataset.pick) { S.askPilot = { pre: pilot }; render(); const el = $("#startPilot"); if (el) el.focus(); return; }
       pilot = ($("#startPilot") || {}).value || ""; if (!pilot) { toast("Bitte zuerst den Piloten wählen."); return; }
+      if (isGesperrt(pilot)) { toast(`${memberName(pilot)} ist als Pilot gesperrt – bitte eine andere Person wählen.`); return; }
       S.askPilot = null;
       const t = nowTime();
       const f = { id: uid("f"), droneId: (prev && prev.droneId) || d.droneId || standardDrone(), start: t, landung: "", akkus: "1", crew: clone(crew0).filter(c => c.role !== "pilot"), bemerkung: "" };
@@ -1787,6 +1812,7 @@ function act(a, b) {
     case "noswap": S.askSwap = false; render(); break;
     case "dopilswap": {
       const np = ($("#swapPilot") || {}).value; if (!np) { toast("Bitte den neuen Piloten wählen."); return; }
+      if (isGesperrt(np)) { toast(`${memberName(np)} ist als Pilot gesperrt – bitte eine andere Person wählen.`); return; }
       const f = d.flights[d.flights.length - 1]; const old = (curCrew(d).find(c => c.role === "pilot" && c.memberId) || {}).memberId;
       if (old === np) { toast("Das ist bereits der aktuelle Pilot."); return; }
       const t = nowTime();
@@ -1830,6 +1856,21 @@ function act(a, b) {
     case "addmelde": { const n = $("#nm-name").value.trim(), t = $("#nm-tel").value.trim(); if (!n) { toast("Bitte eine Bezeichnung eingeben."); return; }
       Store.upsert("config", S.config.id || pbId(), { meldestellen: [...meldestellen(), { name: n, tel: t }] }).then(() => toast("Hinzugefügt")); break; }
     case "delmelde": { const l = meldestellen().slice(); l.splice(+b.dataset.i, 1); S.confirm = null; Store.upsert("config", S.config.id || pbId(), { meldestellen: l.length ? l : [] }).then(() => toast("Entfernt")); break; }
+    case "lockform": S.lockForm = "lk-" + b.dataset.id; render(); { const el = $("#lockText"); if (el) el.focus(); } break;
+    case "unlockform": S.lockForm = "un-" + b.dataset.id; render(); { const el = $("#unlockText"); if (el) el.focus(); } break;
+    case "nolock": S.lockForm = null; render(); break;
+    case "dolock": {
+      if (!isAdmin()) return; const id = b.dataset.id, g = (($("#lockText") || {}).value || "").trim();
+      S.lockForm = null;
+      Store.create("pilotsperren", { member: id, grund: g, seit: today() });
+      Store.upsert("members", id, { pilotGesperrt: true }).then(() => toast(`${memberName(id)} ist als Pilot gesperrt.`)); break;
+    }
+    case "dounlock": {
+      if (!isAdmin()) return; const id = b.dataset.id, t = (($("#unlockText") || {}).value || "").trim();
+      S.lockForm = null;
+      S.sperren.filter(x => x.member === id && !x.bis).forEach(x => Store.upsert("pilotsperren", x.id, { bis: today(), aufhebung: t }));
+      Store.upsert("members", id, { pilotGesperrt: false }).then(() => toast(`Sperre für ${memberName(id)} aufgehoben.`)); break;
+    }
     case "fotozoom": openZoom(b.dataset.id, !!b.dataset.local); break;
     case "zoomclose": $("#zoom").hidden = true; $("#zoom img").removeAttribute("src"); break;
     case "fotodel": S.confirm = null; Store.del("fotos", b.dataset.id).then(() => toast("Foto gelöscht")); break;
@@ -2086,6 +2127,7 @@ async function personPDF() {
   const ms = S.missions.filter(x => missionPeople(x).has(m.id));
   pdfHeader(c, "Tätigkeitsnachweis UAS", unitLabel(), [m.name, "Stand " + fmtDate(today())], logo);
   sec(c, "Person & Routine");
+  if (m.gesperrt) { const ak = S.sperren.find(x => x.member === m.id && !x.bis); para(c, "Pilotenfreigabe", `Als Pilot gesperrt${ak ? " seit " + fmtDate(ak.seit) + (ak.grund ? " – Grund: " + ak.grund : "") : ""}.`); }
   kv(c, [["Name", m.name], ["Qualifikation", m.quali], ["Status", RSTAT[r.status][1]],
     ["Pilot 30 Tage", `${fmtH(r.a)} h (Ziel ${fmtH(r.m30)} h)`], ["Pilot 90 Tage", `${fmtH(r.b)} h (Ziel ${fmtH(r.m90)} h)`], [r.untilLabel || "Gültigkeit", r.until ? fmtDate(r.until) : "–"],
     ["Pilot im Einsatz", `${fmtH(pe.min)} h (${pe.n} Flüge)`], ["Pilot in Übung", `${fmtH(pu.min)} h (${pu.n} Flüge)`], ["Letzter Pilotenflug", r.last ? fmtDate(r.last) : "–"],

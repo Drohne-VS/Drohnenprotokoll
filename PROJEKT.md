@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 05.11.2026 · App-Version 2.0 (gesicherter Vorgängerstand: Zweig `release-v1.1`)
+Stand: 12.11.2026 · App-Version 2.0 (gesicherter Vorgängerstand: Zweig `release-v1.1`)
 
 ---
 
@@ -67,7 +67,8 @@ und mit Playwright durchklicken (Testzugänge nur lokal anlegen).
 |---|---|
 | `users` | Anmeldung per **Benutzername**; Feld `role`: `admin` oder `tablet`; Token 30 Tage gültig |
 | `config` | ein Datensatz: Einheit, Gruppe, Logo, Routine-Minuten (`routineMin30`, `routineMin90`), `meldestellen` (JSON-Liste Name/Telefon) |
-| `members` | Mitglieder: Name, Qualifikation, aktiv |
+| `members` | Mitglieder: Name, Qualifikation, aktiv, `pilotGesperrt` |
+| `pilotsperren` | Sperrvermerke (nur Admin): member, grund, seit, bis, aufhebung, autor |
 | `drones` | Drohnen: Name, Modell, Kennung, aktiv, `standard` (vorausgewählt), `privat` |
 | `missions` | Berichte: `typ` (einsatz/uebung), `status` (entwurf/abgeschlossen), `datum`, `data` (JSON mit allem Übrigen, s. u.) |
 | `protokoll` | Protokolleinträge: mission, zeit, text, tag, autor |
@@ -135,6 +136,11 @@ Hintergrund geht; Protokoll/Abhaken/Fotos sofort.
 grün = ≥ 15 Min. in 30 Tagen **und** ≥ 60 Min. in 90 Tagen; gelb = in 90 Tagen geflogen, aber zu
 wenig; rot = in 90 Tagen nicht geflogen. Werte in Stammdaten änderbar. Zusätzlich Pilotenzeit
 12 Monate getrennt **Einsatz/Übung**, Zahl der Einsätze (dabei/als Pilot), Hinweis „nur Übung“.
+
+**Pilotensperre:** Der Admin kann Mitglieder auf der Personenseite (Stunden → Name) „als Pilot
+sperren“ – mit Grund, Datum und Verlauf (Collection `pilotsperren`, nur Admin lesbar). Am Mitglied
+steht nur `pilotGesperrt`; gesperrte Personen sind in allen Pilot-Auswahlen ausgegraut und als Pilot
+blockiert, bleiben aber für Spotter/Techniker/Verbindung einsetzbar. Aufheben mit Vermerk.
 
 **Stunden:** Dienstzeit je Person aus Team von/bis (sonst Beginn–Ende), Flugzeit je Rolle,
 Personenseite + Tätigkeitsnachweis-PDF, Stundennachweis-PDF und CSV.
