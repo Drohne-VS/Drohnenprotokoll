@@ -220,6 +220,19 @@ tfoot td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: 0;
 .wx-l { font: 600 13px/1 var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .pick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .melde { display: grid; gap: 6px; }
+.mlist2 { display: grid; gap: 8px; }
+.mm { border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); }
+.mm.open { border-color: var(--chart); background: var(--surface); }
+.mm.inaktiv .mm-n b { color: var(--muted); }
+.mm-h { width: 100%; display: flex; gap: 10px; align-items: center; justify-content: space-between; text-align: left; border: 0; background: none; padding: 10px 12px; font-weight: 400; }
+.mm-n { display: grid; gap: 3px; min-width: 0; }
+.mm-n b { font-weight: 600; font-size: 15px; }
+.mm-n .muted { font-size: 13px; }
+.mm-a { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag2 { font-size: 11.5px; padding: 2px 7px; border-radius: 10px; background: var(--uebung-soft); color: var(--uebung); font-weight: 600; }
+.mm-c { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.mm-x { font-size: 13px; color: var(--chart); font-weight: 600; white-space: nowrap; }
+.mm-b { padding: 0 12px 12px; display: grid; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .kr-sum { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--muted); }
 .kr-sum b { color: var(--ink); font-size: 17px; font-family: var(--f-display); }
 .kr { display: grid; gap: 8px; }
@@ -440,6 +453,15 @@ const WETTER = [
 ];
 const ANBINDUNG = [["", "– wählen –"], ["fg", "Führungsgruppe"], ["bildschirm", "Eigenständiger Bildschirm"], ["evd", "Direkt EvD"], ["el", "Sonstige Einsatzleitung"]];
 const ANB_LABEL = { fg: "Führungsgruppe", bildschirm: "Eigenständiger Bildschirm", evd: "Direkt EvD", el: "Sonstige Einsatzleitung", keine: "Keine" };
+// Auswahllisten (in Stammdaten änderbar). Abteilungen laut Feuerwehrsatzung der Stadt VS.
+const LISTEN_DEFAULT = {
+  abteilungen: ["Villingen", "Schwenningen", "Schwenningen – Löschgruppe Mühlhausen", "Herzogenweiler", "Marbach", "Obereschach", "Pfaffenweiler", "Rietheim", "Tannheim", "Weigheim", "Weilersbach", "Sondereinheiten", "Hauptamtliche Kräfte"],
+  dienstgrade: ["Feuerwehrmann/-frau", "Oberfeuerwehrmann/-frau", "Hauptfeuerwehrmann/-frau", "Löschmeister/-in", "Oberlöschmeister/-in", "Hauptlöschmeister/-in", "Brandmeister/-in", "Oberbrandmeister/-in", "Hauptbrandmeister/-in", "Brandinspektor/-in", "Brandoberinspektor/-in", "Brandamtmann/-frau", "Brandrat/-rätin", "Branddirektor/-in"],
+  ausbildungen: ["Truppmann", "Truppführer", "Sprechfunker", "Atemschutzgeräteträger", "Maschinist", "Gruppenführer", "Zugführer", "Verbandsführer", "Sanitäter / Erste Hilfe", "EU-Kompetenznachweis A1/A3", "EU-Fernpiloten-Zeugnis A2", "STS-Zeugnis", "UAS-Lehrgang Feuerwehr", "Wärmebild-Auswertung"],
+};
+const listen = k => { const l = S.config.listen && Array.isArray(S.config.listen[k]) ? S.config.listen[k] : null; return l && l.length ? l : LISTEN_DEFAULT[k]; };
+function uasState(m) { if (!m.uasBis) return null; const d = -daysSince(m.uasBis); return d < 0 ? "abgelaufen" : d <= 60 ? "laeuft_ab" : "ok"; }
+function memberLine(m) { return [m.dienstgrad, m.abteilung ? "Abt. " + m.abteilung : ""].filter(Boolean).join(" · "); }
 const MELDE_DEFAULT = [
   { name: "Leitstelle SBK (Funk oder Telefon)", tel: "07721 20690" },
   { name: "Polizeirevier Villingen", tel: "07721 6010" },
@@ -614,13 +636,14 @@ const Store = (() => {
     S.missions = recs("missions").map(r => ({ ...(r.data || {}), id: r.id, typ: r.typ, status: r.status, datum: r.datum, updatedAt: r.updated || null, _pending: !!r._pending }))
       .filter(m => isAdmin() || m.status !== "abgeschlossen" || m._pending)
       .sort((a, b) => (b.datum || "").localeCompare(a.datum || "") || (b.beginn || "").localeCompare(a.beginn || ""));
-    S.members = recs("members").map(r => ({ id: r.id, name: r.name || "", quali: r.quali || "", aktiv: r.aktiv !== false, gesperrt: !!r.pilotGesperrt })).sort(byName);
+    S.members = recs("members").map(r => ({ id: r.id, name: r.name || "", quali: r.quali || "", aktiv: r.aktiv !== false, gesperrt: !!r.pilotGesperrt,
+      abteilung: r.abteilung || "", dienstgrad: r.dienstgrad || "", ausbildungen: Array.isArray(r.ausbildungen) ? r.ausbildungen : [], uasBis: r.uasBis || "" })).sort(byName);
     S.sperren = recs("pilotsperren").map(r => ({ id: r.id, member: r.member, grund: r.grund || "", seit: r.seit || "", bis: r.bis || "", aufhebung: r.aufhebung || "", created: r.created || "" }))
       .sort((a, b) => String(b.seit + b.created).localeCompare(String(a.seit + a.created)));
     S.drones = recs("drones").map(r => ({ id: r.id, name: r.name || "", typ: r.modell || "", kennung: r.kennung || "", aktiv: r.aktiv !== false, standard: !!r.standard, privat: !!r.privat }))
       .sort((a, b) => (b.standard - a.standard) || (a.privat - b.privat) || byName(a, b));
     const cf = recs("config")[0];
-    S.config = cf ? { id: cf.id, einheit: cf.einheit || "", gruppe: cf.gruppe || "", routineMin30: cf.routineMin30 || "", routineMin90: cf.routineMin90 || "", meldestellen: Array.isArray(cf.meldestellen) ? cf.meldestellen : null,
+    S.config = cf ? { id: cf.id, einheit: cf.einheit || "", gruppe: cf.gruppe || "", routineMin30: cf.routineMin30 || "", routineMin90: cf.routineMin90 || "", meldestellen: Array.isArray(cf.meldestellen) ? cf.meldestellen : null, listen: cf.listen && typeof cf.listen === "object" ? cf.listen : null,
       logoUrl: cf.logo && cf.collectionId ? pb.files.getURL(cf, cf.logo) : "" } : {};
     S.protokoll = recs("protokoll").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit, text: r.text, tag: r.tag || "", created: r.created || "", _pending: !!r._pending }))
       .sort((a, b) => (tmin(a.zeit) ?? 0) - (tmin(b.zeit) ?? 0) || String(a.created).localeCompare(String(b.created)));
@@ -1488,7 +1511,7 @@ function vRoutine() {
       const pe = sumBy(p12, x => x.typ !== "uebung"), pu = sumBy(p12, x => x.typ === "uebung");
       const einsPilot = new Set(p12.filter(x => x.typ !== "uebung").map(x => x.missionId)).size;
       const onlyU = p12.length && !pe.n;
-      return `<tr><td>${personLink(m.id, m.name)}${m.gesperrt ? ` <span class="chip bad">Pilot gesperrt</span>` : ""}${onlyU ? ` <span class="chip neutral" title="In den letzten 12 Monaten nur in Übungen als Pilot geflogen">nur Übung</span>` : ""}</td><td>${rChip(r.status)}</td>
+      return `<tr><td>${personLink(m.id, m.name)}${m.gesperrt ? ` <span class="chip bad">Pilot gesperrt</span>` : ""}${uasState(m) === "abgelaufen" ? ` <span class="chip bad">UAS-Nachweis abgelaufen</span>` : uasState(m) === "laeuft_ab" ? ` <span class="chip warn">UAS-Nachweis läuft ab</span>` : ""}${onlyU ? ` <span class="chip neutral" title="In den letzten 12 Monaten nur in Übungen als Pilot geflogen">nur Übung</span>` : ""}</td><td>${rChip(r.status)}</td>
       <td class="r mono">${fmtH(r.a)} ${bar(r.a, r.m30)}</td>
       <td class="r mono">${fmtH(r.b)} ${bar(r.b, r.m90)}</td>
       <td class="r mono">${fmtH(pe.min)} <span class="muted">/</span> ${fmtH(pu.min)}</td>
@@ -1526,7 +1549,9 @@ function vPerson() {
   const dienst = ms.reduce((s, x) => s + missionDienst(x, m.id), 0);
   let h = `<div class="head"><div>
     <div class="row" style="gap:8px;margin-bottom:6px"><a href="#stunden" class="btn" style="padding:6px 10px;font-size:13px">← Stunden</a>${rChip(r.status)}${m.aktiv === false ? `<span class="chip neutral">Inaktiv</span>` : ""}</div>
-    <h1>${esc(m.name)}</h1><p class="sub">${esc(m.quali || "Keine Qualifikation hinterlegt")}</p></div>
+    <h1>${esc(m.name)}</h1><p class="sub">${esc(memberLine(m) || "Abteilung/Dienstgrad nicht eingetragen")}${m.quali ? " · " + esc(m.quali) : ""}</p>
+    ${m.ausbildungen.length ? `<div class="mm-a" style="margin-top:6px">${m.ausbildungen.map(a => `<span class="tag2">${esc(a)}</span>`).join("")}</div>` : ""}
+    ${m.uasBis ? `<p class="sub">UAS-Nachweis gültig bis <b>${fmtDate(m.uasBis)}</b>${uasState(m) === "abgelaufen" ? ` <span class="chip bad">abgelaufen</span>` : uasState(m) === "laeuft_ab" ? ` <span class="chip warn">läuft bald ab</span>` : ""}</p>` : ""}</div>
     <div class="row"><button class="primary" data-act="ppdf" ${S.dl ? "" : "disabled"}>Tätigkeitsnachweis als PDF</button></div></div>`;
   let msg;
   const fehlt = [r.need30 ? `${r.need30} Min. in den nächsten Tagen (30-Tage-Ziel)` : "", r.need90 ? `${r.need90} Min. für das 90-Tage-Ziel` : ""].filter(Boolean).join(" und ");
@@ -1579,15 +1604,7 @@ function vStamm() {
     ${dis ? "" : `<div class="row"><input id="nm-name" placeholder="z. B. Flugleitung / DFS" style="flex:2 1 200px;width:auto"><input id="nm-tel" class="mono" placeholder="Telefon" style="flex:1 1 140px;width:auto"><button data-act="addmelde">Hinzufügen</button></div>`}
   </section></div>`;
   // Mitglieder
-  h += `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Mitglieder</h2><span class="muted">${S.members.filter(m => m.aktiv !== false).length} aktiv</span></div>
-    ${dis ? "" : `<div class="row"><input id="newMember" placeholder="Vor- und Nachname" style="flex:2 1 200px;width:auto"><input id="newMemberQ" placeholder="Qualifikation, z. B. A1/A3 + A2" style="flex:2 1 200px;width:auto"><button class="primary" data-act="addmember">Hinzufügen</button></div>`}
-    ${S.members.length ? `<div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Qualifikation / Nachweise</th><th>Status</th><th></th></tr></thead><tbody>
-    ${S.members.map(m => `<tr><td><input id="mn-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="name" value="${esc(m.name)}" ${dis}></td>
-      <td><input id="mq-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="quali" value="${esc(m.quali || "")}" placeholder="–" ${dis}></td>
-      <td><div class="row" style="gap:4px">${m.aktiv === false ? `<span class="chip neutral">Inaktiv</span>` : `<span class="chip ok">Aktiv</span>`}${m.gesperrt ? `<a class="chip bad" href="#p-${esc(m.id)}" style="text-decoration:none">Pilot gesperrt</a>` : ""}</div></td>
-      <td class="r" style="white-space:nowrap">${dis ? "" : `<button class="sm ghost" data-act="togglemember" data-id="${esc(m.id)}">${m.aktiv === false ? "Aktivieren" : "Inaktiv setzen"}</button>${used.has(m.id) ? "" : (S.confirm === "m-" + m.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="delmember" data-id="${esc(m.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="m-${esc(m.id)}">Löschen</button>`)}`}</td></tr>`).join("")}
-    </tbody></table></div><p class="muted" style="font-size:13px">Wer schon in Berichten vorkommt, kann nur inaktiv gesetzt werden – so bleiben die Stunden erhalten.</p>` : `<p class="muted">Noch keine Mitglieder. Trage hier alle ein, die als Pilot, Beobachter oder Helfer im Bericht auftauchen sollen.</p>`}
-  </section></div>`;
+  h += vMitglieder(dis, used);
   // Drohnen
   h += `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Drohnen</h2><span class="muted">${S.drones.length}</span></div>
     ${dis ? "" : `<div class="row"><input id="newDrone" placeholder="Bezeichnung, z. B. UAS 1" style="flex:1 1 140px;width:auto"><input id="newDroneT" placeholder="Modell, z. B. DJI Matrice 30T" style="flex:2 1 180px;width:auto"><input id="newDroneK" placeholder="Kennung / Seriennr." class="mono" style="flex:1 1 140px;width:auto"><button class="primary" data-act="adddrone">Hinzufügen</button></div>`}
@@ -1602,6 +1619,36 @@ function vStamm() {
   </section></div>`;
   h += vUsers();
   h += `<p class="muted" style="font-size:12px">Drohne-VS-Protokoll · Version ${APP_VERSION}</p>`;
+  return h;
+}
+function vMitglieder(dis, used) {
+  const opt = (l, v, ph) => `<option value="">${ph}</option>` + [...l, ...(v && !l.includes(v) ? [v] : [])].map(x => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
+  let h = `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Mitglieder</h2><span class="muted">${S.members.filter(m => m.aktiv !== false).length} aktiv</span></div>
+    ${dis ? "" : `<div class="row"><input id="newMember" placeholder="Vor- und Nachname" style="flex:2 1 220px;width:auto"><select id="newMemberA" style="flex:1 1 160px;width:auto">${opt(listen("abteilungen"), "", "– Abteilung –")}</select><button class="primary" data-act="addmember">Hinzufügen</button></div>`}`;
+  if (!S.members.length) return h + `<p class="muted">Noch keine Mitglieder. Trage hier alle ein, die als Pilot, Spotter, Techniker oder Verbindung im Bericht auftauchen sollen.</p></section></div>`;
+  h += `<div class="mlist2">${S.members.map(m => {
+    const us = uasState(m), open = S.editMember === m.id;
+    const chips = `${m.aktiv === false ? `<span class="chip neutral">Inaktiv</span>` : ""}${m.gesperrt ? `<a class="chip bad" href="#p-${esc(m.id)}" style="text-decoration:none">Pilot gesperrt</a>` : ""}${us === "abgelaufen" ? `<span class="chip bad">UAS-Nachweis abgelaufen</span>` : us === "laeuft_ab" ? `<span class="chip warn">UAS-Nachweis läuft ab</span>` : ""}`;
+    let r = `<div class="mm ${open ? "open" : ""} ${m.aktiv === false ? "inaktiv" : ""}"><button type="button" class="mm-h" data-act="editmember" data-id="${esc(m.id)}" aria-expanded="${open}">
+      <span class="mm-n"><b>${esc(m.name)}</b><span class="muted">${esc(memberLine(m) || "Abteilung und Dienstgrad noch nicht eingetragen")}</span>
+      ${m.ausbildungen.length ? `<span class="mm-a">${m.ausbildungen.map(a => `<span class="tag2">${esc(a)}</span>`).join("")}</span>` : ""}</span>
+      <span class="mm-c">${chips}<span class="mm-x">${open ? "Schließen" : dis ? "Ansehen" : "Bearbeiten"}</span></span></button>`;
+    if (open) r += `<div class="mm-b"><div class="grid">
+        <label class="f w2"><span>Name</span><input id="mn-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="name" value="${esc(m.name)}" ${dis}></label>
+        <label class="f"><span>Abteilung</span><select id="ma-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="abteilung" ${dis}>${opt(listen("abteilungen"), m.abteilung, "– wählen –")}</select></label>
+        <label class="f"><span>Dienstgrad</span><select id="md-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="dienstgrad" ${dis}>${opt(listen("dienstgrade"), m.dienstgrad, "– wählen –")}</select></label>
+        <label class="f"><span>UAS-Nachweis gültig bis</span><input type="date" id="mu-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="uasBis" value="${esc(m.uasBis)}" ${dis}></label>
+        <label class="f w2"><span>Bemerkung / weitere Nachweise</span><input id="mq-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="quali" value="${esc(m.quali || "")}" placeholder="z. B. Nummer des Fernpiloten-Zeugnisses" ${dis}></label>
+      </div>
+      <div class="wx-g"><span class="wx-l">Ausbildung (antippen)</span><div class="pick">${[...listen("ausbildungen"), ...m.ausbildungen.filter(a => !listen("ausbildungen").includes(a))].map(a => `<button type="button" data-act="mausb" data-id="${esc(m.id)}" data-v="${esc(a)}" aria-pressed="${m.ausbildungen.includes(a)}" ${dis}>${esc(a)}</button>`).join("")}</div></div>
+      ${dis ? "" : `<div class="row"><a class="btn" href="#p-${esc(m.id)}">Personenseite / Pilotenfreigabe</a><button class="sm ghost" data-act="togglemember" data-id="${esc(m.id)}">${m.aktiv === false ? "Aktivieren" : "Inaktiv setzen"}</button>${used.has(m.id) ? `<span class="muted" style="font-size:12.5px">Kommt in Berichten vor – nur inaktiv setzen möglich.</span>` : (S.confirm === "m-" + m.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="delmember" data-id="${esc(m.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="m-${esc(m.id)}">Löschen</button>`)}</div>`}
+    </div>`;
+    return r + `</div>`; }).join("")}</div>
+  <p class="muted" style="font-size:13px">Antippen öffnet die Details. Änderungen werden sofort gespeichert. Die Auswahllisten (Abteilungen, Dienstgrade, Ausbildungen) lassen sich unten anpassen.</p></section></div>`;
+  // Auswahllisten
+  h += `<div class="sheet"><section class="sec"><h2>Auswahllisten</h2><p class="muted" style="font-size:13px">Ein Eintrag pro Zeile. Die Abteilungen entsprechen der Feuerwehrsatzung der Stadt; Dienstgrade und Ausbildungen bitte an eure Praxis anpassen.</p>
+    <div class="grid">${[["abteilungen", "Abteilungen"], ["dienstgrade", "Dienstgrade"], ["ausbildungen", "Ausbildungen"]].map(([k, l]) => `<label class="f"><span>${l}</span><textarea id="li-${k}" data-liste="${k}" rows="8" ${dis}>${esc(listen(k).join("\n"))}</textarea></label>`).join("")}</div>
+  </section></div>`;
   return h;
 }
 function vUsers() {
@@ -1690,6 +1737,11 @@ document.addEventListener("change", e => {
   if (t.dataset.cfg && isAdmin()) {
     let v = t.value.trim(); if (/^routine/.test(t.dataset.cfg)) { v = parseInt(v, 10); if (!(v >= 1)) { toast("Bitte eine Zahl ab 1 (Minuten) eingeben."); render(); return; } }
     Store.upsert("config", S.config.id || pbId(), { [t.dataset.cfg]: v }).then(() => toast("Gespeichert")); return;
+  }
+  if (t.dataset.liste && isAdmin()) {
+    const l = t.value.split("\n").map(x => x.trim()).filter(Boolean);
+    const cur = { ...(S.config.listen || {}) }; cur[t.dataset.liste] = l;
+    Store.upsert("config", S.config.id || pbId(), { listen: cur }).then(() => toast("Liste gespeichert")); return;
   }
   if (t.dataset.melde != null && isAdmin()) {
     const l = meldestellen().map(x => ({ ...x })); const i = +t.dataset.melde; const v = t.value.trim();
@@ -1882,9 +1934,15 @@ function act(a, b) {
     case "hpdf": hoursPDF(); break;
     case "csv": hoursCSV(); break;
     case "addmember": {
-      const n = $("#newMember"), q = $("#newMemberQ"); const name = n.value.trim(); if (!name) { toast("Bitte einen Namen eingeben."); n.focus(); return; }
-      Store.create("members", { name, quali: q.value.trim(), aktiv: true }).then(() => toast(name + " hinzugefügt"));
-      n.value = ""; q.value = ""; n.focus(); break;
+      const n = $("#newMember"), a = $("#newMemberA"); const name = n.value.trim(); if (!name) { toast("Bitte einen Namen eingeben."); n.focus(); return; }
+      Store.create("members", { name, abteilung: a ? a.value : "", aktiv: true, ausbildungen: [] }).then(() => toast(name + " hinzugefügt"));
+      n.value = ""; n.focus(); break;
+    }
+    case "editmember": S.editMember = S.editMember === b.dataset.id ? null : b.dataset.id; render(); break;
+    case "mausb": {
+      if (!isAdmin()) return; const m = S.members.find(x => x.id === b.dataset.id); if (!m) return;
+      const l = m.ausbildungen.includes(b.dataset.v) ? m.ausbildungen.filter(x => x !== b.dataset.v) : [...m.ausbildungen, b.dataset.v];
+      Store.upsert("members", m.id, { ausbildungen: l }); break;
     }
     case "togglemember": { const m = S.members.find(x => x.id === b.dataset.id); Store.upsert("members", m.id, { aktiv: m.aktiv === false }); break; }
     case "delmember": S.confirm = null; Store.del("members", b.dataset.id).then(() => toast("Gelöscht")); break;
@@ -2082,7 +2140,8 @@ async function reportPDF() {
       const t = (m.team || []).find(x => x.memberId === id);
       const roles = {}; (m.flights || []).forEach(f => (f.crew || []).forEach(cc => { if (cc.memberId === id) roles[cc.role] = (roles[cc.role] || 0) + flightMin(f); }));
       const z = dienstZeit(m, id);
-      return [memberName(id), t && t.ort === "wache" ? "Wache" : "Einsatzstelle", `${z.von || "–"} – ${z.bis || "–"}${z.entlassen ? " (entl.)" : ""}`, (t && t.funktion) || "", Object.entries(roles).map(([r, mn]) => `${ROLES_S[r] || r} ${fmtH(mn)} h`).join(", ") || "–"];
+      const mm = S.members.find(x => x.id === id) || {};
+      return [memberName(id) + (mm.dienstgrad ? "\n" + mm.dienstgrad : ""), t && t.ort === "wache" ? "Wache" : "Einsatzstelle", `${z.von || "–"} – ${z.bis || "–"}${z.entlassen ? " (entl.)" : ""}`, (t && t.funktion) || "", Object.entries(roles).map(([r, mn]) => `${ROLES_S[r] || r} ${fmtH(mn)} h`).join(", ") || "–"];
     }), [40, 22, 30, 34, 52]);
   }
   if ((m.flights || []).length) {
@@ -2128,7 +2187,9 @@ async function personPDF() {
   pdfHeader(c, "Tätigkeitsnachweis UAS", unitLabel(), [m.name, "Stand " + fmtDate(today())], logo);
   sec(c, "Person & Routine");
   if (m.gesperrt) { const ak = S.sperren.find(x => x.member === m.id && !x.bis); para(c, "Pilotenfreigabe", `Als Pilot gesperrt${ak ? " seit " + fmtDate(ak.seit) + (ak.grund ? " – Grund: " + ak.grund : "") : ""}.`); }
-  kv(c, [["Name", m.name], ["Qualifikation", m.quali], ["Status", RSTAT[r.status][1]],
+  kv(c, [["Name", m.name], ["Abteilung", m.abteilung], ["Dienstgrad", m.dienstgrad],
+    ["Ausbildung", m.ausbildungen.join(", "), 2], ["UAS-Nachweis gültig bis", m.uasBis ? fmtDate(m.uasBis) : ""],
+    ["Bemerkung", m.quali, 2], ["Status", RSTAT[r.status][1]],
     ["Pilot 30 Tage", `${fmtH(r.a)} h (Ziel ${fmtH(r.m30)} h)`], ["Pilot 90 Tage", `${fmtH(r.b)} h (Ziel ${fmtH(r.m90)} h)`], [r.untilLabel || "Gültigkeit", r.until ? fmtDate(r.until) : "–"],
     ["Pilot im Einsatz", `${fmtH(pe.min)} h (${pe.n} Flüge)`], ["Pilot in Übung", `${fmtH(pu.min)} h (${pu.n} Flüge)`], ["Letzter Pilotenflug", r.last ? fmtDate(r.last) : "–"],
     ["Einsätze", String(ms.filter(x => x.typ !== "uebung").length)], ["Übungen", String(ms.filter(x => x.typ === "uebung").length)], ["Dienstzeit gesamt", fmtH(ms.reduce((s, x) => s + missionDienst(x, m.id), 0)) + " h"]]);

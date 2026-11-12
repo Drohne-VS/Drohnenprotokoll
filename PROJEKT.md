@@ -66,8 +66,8 @@ und mit Playwright durchklicken (Testzugänge nur lokal anlegen).
 | Collection | Inhalt |
 |---|---|
 | `users` | Anmeldung per **Benutzername**; Feld `role`: `admin` oder `tablet`; Token 30 Tage gültig |
-| `config` | ein Datensatz: Einheit, Gruppe, Logo, Routine-Minuten (`routineMin30`, `routineMin90`), `meldestellen` (JSON-Liste Name/Telefon) |
-| `members` | Mitglieder: Name, Qualifikation, aktiv, `pilotGesperrt` |
+| `config` | ein Datensatz: Einheit, Gruppe, Logo, Routine-Minuten (`routineMin30`, `routineMin90`), `meldestellen` (JSON-Liste Name/Telefon), `listen` (Auswahllisten abteilungen/dienstgrade/ausbildungen) |
+| `members` | Mitglieder: Name, Abteilung, Dienstgrad, `ausbildungen` (Liste), `uasBis` (UAS-Nachweis gültig bis), Bemerkung (`quali`), aktiv, `pilotGesperrt` |
 | `pilotsperren` | Sperrvermerke (nur Admin): member, grund, seit, bis, aufhebung, autor |
 | `drones` | Drohnen: Name, Modell, Kennung, aktiv, `standard` (vorausgewählt), `privat` |
 | `missions` | Berichte: `typ` (einsatz/uebung), `status` (entwurf/abgeschlossen), `datum`, `data` (JSON mit allem Übrigen, s. u.) |
@@ -136,6 +136,11 @@ Hintergrund geht; Protokoll/Abhaken/Fotos sofort.
 grün = ≥ 15 Min. in 30 Tagen **und** ≥ 60 Min. in 90 Tagen; gelb = in 90 Tagen geflogen, aber zu
 wenig; rot = in 90 Tagen nicht geflogen. Werte in Stammdaten änderbar. Zusätzlich Pilotenzeit
 12 Monate getrennt **Einsatz/Übung**, Zahl der Einsätze (dabei/als Pilot), Hinweis „nur Übung“.
+
+**Mitglieder:** Abteilung (Liste laut Feuerwehrsatzung VS: Villingen, Schwenningen inkl. Löschgruppe
+Mühlhausen, Herzogenweiler, Marbach, Obereschach, Pfaffenweiler, Rietheim, Tannheim, Weigheim,
+Weilersbach, Sondereinheiten, Hauptamtliche Kräfte), Dienstgrad, Ausbildungen (antippen), Gültigkeit
+UAS-Nachweis mit Warnung (abgelaufen / läuft in 60 Tagen ab). Alle drei Listen in Stammdaten änderbar.
 
 **Pilotensperre:** Der Admin kann Mitglieder auf der Personenseite (Stunden → Name) „als Pilot
 sperren“ – mit Grund, Datum und Verlauf (Collection `pilotsperren`, nur Admin lesbar). Am Mitglied
