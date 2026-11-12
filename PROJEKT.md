@@ -67,7 +67,8 @@ und mit Playwright durchklicken (Testzugänge nur lokal anlegen).
 |---|---|
 | `users` | Anmeldung per **Benutzername**; Feld `role`: `admin` oder `tablet`; Token 30 Tage gültig |
 | `config` | ein Datensatz: Einheit, Gruppe, Logo, Routine-Minuten (`routineMin30`, `routineMin90`), `meldestellen` (JSON-Liste Name/Telefon), `listen` (Auswahllisten abteilungen/dienstgrade/ausbildungen) |
-| `members` | Mitglieder: Name, Abteilung, Dienstgrad, `ausbildungen` (Liste), `uasBis` (UAS-Nachweis gültig bis), Bemerkung (`quali`), aktiv, `pilotGesperrt` |
+| `members` | Mitglieder: Name, aktiv, `pilotGesperrt` (für alle lesbar, damit das Tablet Namen/Sperre kennt) |
+| `mitgliederdetails` | **nur Admin**: member, abteilung, dienstgrad, ausbildungen, uasBis, bemerkung, `nachweise` (geschützte PDFs/Bilder, z. B. Fernpiloten-Zeugnis) |
 | `pilotsperren` | Sperrvermerke (nur Admin): member, grund, seit, bis, aufhebung, autor |
 | `drones` | Drohnen: Name, Modell, Kennung, aktiv, `standard` (vorausgewählt), `privat` |
 | `missions` | Berichte: `typ` (einsatz/uebung), `status` (entwurf/abgeschlossen), `datum`, `data` (JSON mit allem Übrigen, s. u.) |
@@ -140,7 +141,9 @@ wenig; rot = in 90 Tagen nicht geflogen. Werte in Stammdaten änderbar. Zusätzl
 **Mitglieder:** Abteilung (Liste laut Feuerwehrsatzung VS: Villingen, Schwenningen inkl. Löschgruppe
 Mühlhausen, Herzogenweiler, Marbach, Obereschach, Pfaffenweiler, Rietheim, Tannheim, Weigheim,
 Weilersbach, Sondereinheiten, Hauptamtliche Kräfte), Dienstgrad, Ausbildungen (antippen), Gültigkeit
-UAS-Nachweis mit Warnung (abgelaufen / läuft in 60 Tagen ab). Alle drei Listen in Stammdaten änderbar.
+UAS-Nachweis mit Warnung (abgelaufen / läuft in 60 Tagen ab), Bescheinigungen als PDF/Foto ablegen.
+Alle drei Listen in Stammdaten änderbar. **Diese Verwaltungsdaten erscheinen nicht in Berichten,
+Protokollen oder PDFs** und sind nur für den Admin abrufbar.
 
 **Pilotensperre:** Der Admin kann Mitglieder auf der Personenseite (Stunden → Name) „als Pilot
 sperren“ – mit Grund, Datum und Verlauf (Collection `pilotsperren`, nur Admin lesbar). Am Mitglied

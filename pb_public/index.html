@@ -233,6 +233,10 @@ tfoot td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: 0;
 .mm-c { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
 .mm-x { font-size: 13px; color: var(--chart); font-weight: 600; white-space: nowrap; }
 .mm-b { padding: 0 12px 12px; display: grid; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.nw { display: grid; gap: 6px; }
+.nw-r { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.nw-i { font: 700 11px/1 var(--f-display); letter-spacing: .06em; padding: 4px 6px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); }
+.nw-r a { color: var(--chart); font-weight: 600; overflow-wrap: anywhere; }
 .kr-sum { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--muted); }
 .kr-sum b { color: var(--ink); font-size: 17px; font-family: var(--f-display); }
 .kr { display: grid; gap: 8px; }
@@ -616,7 +620,7 @@ const pbId = () => { const a = "abcdefghijklmnopqrstuvwxyz0123456789"; const r =
 const me = () => pb.authStore.record || null;
 const isAdmin = () => !!me() && me().role === "admin";
 const isTablet = () => !!me() && me().role === "tablet";
-const COLS = ["config", "members", "drones", "missions", "protokoll", "fotos", "pilotsperren"];
+const COLS = ["config", "members", "drones", "missions", "protokoll", "fotos", "pilotsperren", "mitgliederdetails"];
 
 const Store = (() => {
   let cache = {}, outbox = [], flushing = false, subscribed = false, timer = null;
@@ -636,8 +640,11 @@ const Store = (() => {
     S.missions = recs("missions").map(r => ({ ...(r.data || {}), id: r.id, typ: r.typ, status: r.status, datum: r.datum, updatedAt: r.updated || null, _pending: !!r._pending }))
       .filter(m => isAdmin() || m.status !== "abgeschlossen" || m._pending)
       .sort((a, b) => (b.datum || "").localeCompare(a.datum || "") || (b.beginn || "").localeCompare(a.beginn || ""));
-    S.members = recs("members").map(r => ({ id: r.id, name: r.name || "", quali: r.quali || "", aktiv: r.aktiv !== false, gesperrt: !!r.pilotGesperrt,
-      abteilung: r.abteilung || "", dienstgrad: r.dienstgrad || "", ausbildungen: Array.isArray(r.ausbildungen) ? r.ausbildungen : [], uasBis: r.uasBis || "" })).sort(byName);
+    // Verwaltungsdaten (nur Admin) aus „mitgliederdetails“ an die Mitglieder hängen
+    const det = {}; recs("mitgliederdetails").forEach(r => { det[r.member] = r; });
+    S.members = recs("members").map(r => { const x = det[r.id] || {}; return { id: r.id, name: r.name || "", aktiv: r.aktiv !== false, gesperrt: !!r.pilotGesperrt, detId: x.id || null,
+      abteilung: x.abteilung || "", dienstgrad: x.dienstgrad || "", ausbildungen: Array.isArray(x.ausbildungen) ? x.ausbildungen : [], uasBis: x.uasBis || "", quali: x.bemerkung || "",
+      nachweise: Array.isArray(x.nachweise) ? x.nachweise : [] }; }).sort(byName);
     S.sperren = recs("pilotsperren").map(r => ({ id: r.id, member: r.member, grund: r.grund || "", seit: r.seit || "", bis: r.bis || "", aufhebung: r.aufhebung || "", created: r.created || "" }))
       .sort((a, b) => String(b.seit + b.created).localeCompare(String(a.seit + a.created)));
     S.drones = recs("drones").map(r => ({ id: r.id, name: r.name || "", typ: r.modell || "", kennung: r.kennung || "", aktiv: r.aktiv !== false, standard: !!r.standard, privat: !!r.privat }))
@@ -1621,6 +1628,32 @@ function vStamm() {
   h += `<p class="muted" style="font-size:12px">Drohne-VS-Protokoll · Version ${APP_VERSION}</p>`;
   return h;
 }
+const DET_FIELD = { abteilung: "abteilung", dienstgrad: "dienstgrad", uasBis: "uasBis", quali: "bemerkung", ausbildungen: "ausbildungen" };
+function saveDetail(memberId, body) {
+  const m = S.members.find(x => x.id === memberId); if (!m) return Promise.resolve();
+  const id = m.detId || (S.newDet || (S.newDet = {}))[memberId] || (S.newDet[memberId] = pbId());
+  return Store.upsert("mitgliederdetails", id, { member: memberId, ...body });
+}
+async function uploadNachweis(memberId, files) {
+  if (!S.online) { toast("Bescheinigungen lassen sich nur mit Internetverbindung hochladen."); return; }
+  const m = S.members.find(x => x.id === memberId); if (!m) return;
+  if (!m.detId) { await saveDetail(memberId, {}); await Store.flush(); }
+  const id = (S.members.find(x => x.id === memberId) || {}).detId || (S.newDet || {})[memberId];
+  const fd = new FormData(); [...files].forEach(fl => fd.append("nachweise+", fl, fl.name));
+  toast("Wird hochgeladen …");
+  try { const rec = await pb.collection("mitgliederdetails").update(id, fd); Store.put("mitgliederdetails", rec); toast("Bescheinigung gespeichert"); }
+  catch (e) { toast("Hochladen fehlgeschlagen" + (e && e.status === 400 ? " – nur PDF oder Bild bis 15 MB" : "") + "."); }
+}
+function nachweisURL(m, name) { const r = m.detId && Store.raw("mitgliederdetails", m.detId); return r && fileTok.t ? pb.files.getURL(r, name, { token: fileTok.t }) : ""; }
+function vNachweise(m, dis) {
+  if (m.nachweise.length && !fileTok.t && S.online) fileToken().then(() => render(), () => {});
+  const nice = n => n.replace(/_[a-z0-9]{10}(\.[a-z0-9]+)$/i, "$1");
+  return `<div class="wx-g"><span class="wx-l">Bescheinigungen (z. B. Fernpiloten-Zeugnis)</span>
+    ${m.nachweise.length ? `<div class="nw">${m.nachweise.map(n => { const u = nachweisURL(m, n); return `<div class="nw-r"><span class="nw-i">${/\.pdf$/i.test(n) ? "PDF" : "Bild"}</span><a href="${esc(u || "#")}" target="_blank" rel="noopener" data-nwopen="${esc(m.id)}" data-n="${esc(n)}">${esc(nice(n))}</a>
+      ${dis ? "" : S.confirm === "nw-" + n ? `<span class="confirm">Löschen? <button class="sm danger" data-act="delnachweis" data-id="${esc(m.id)}" data-n="${esc(n)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="nw-${esc(n)}">Löschen</button>`}</div>`; }).join("")}</div>` : `<span class="muted" style="font-size:13px">Noch nichts abgelegt.</span>`}
+    ${dis ? "" : `<div><label class="btn" for="nw-${esc(m.id)}" style="cursor:pointer">Bescheinigung hochladen (PDF/Foto)</label><input type="file" id="nw-${esc(m.id)}" data-nachweis="${esc(m.id)}" accept="application/pdf,image/*" multiple hidden></div>`}
+  </div>`;
+}
 function vMitglieder(dis, used) {
   const opt = (l, v, ph) => `<option value="">${ph}</option>` + [...l, ...(v && !l.includes(v) ? [v] : [])].map(x => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
   let h = `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Mitglieder</h2><span class="muted">${S.members.filter(m => m.aktiv !== false).length} aktiv</span></div>
@@ -1640,6 +1673,7 @@ function vMitglieder(dis, used) {
         <label class="f"><span>UAS-Nachweis gültig bis</span><input type="date" id="mu-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="uasBis" value="${esc(m.uasBis)}" ${dis}></label>
         <label class="f w2"><span>Bemerkung / weitere Nachweise</span><input id="mq-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="quali" value="${esc(m.quali || "")}" placeholder="z. B. Nummer des Fernpiloten-Zeugnisses" ${dis}></label>
       </div>
+      ${vNachweise(m, dis)}
       <div class="wx-g"><span class="wx-l">Ausbildung (antippen)</span><div class="pick">${[...listen("ausbildungen"), ...m.ausbildungen.filter(a => !listen("ausbildungen").includes(a))].map(a => `<button type="button" data-act="mausb" data-id="${esc(m.id)}" data-v="${esc(a)}" aria-pressed="${m.ausbildungen.includes(a)}" ${dis}>${esc(a)}</button>`).join("")}</div></div>
       ${dis ? "" : `<div class="row"><a class="btn" href="#p-${esc(m.id)}">Personenseite / Pilotenfreigabe</a><button class="sm ghost" data-act="togglemember" data-id="${esc(m.id)}">${m.aktiv === false ? "Aktivieren" : "Inaktiv setzen"}</button>${used.has(m.id) ? `<span class="muted" style="font-size:12.5px">Kommt in Berichten vor – nur inaktiv setzen möglich.</span>` : (S.confirm === "m-" + m.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="delmember" data-id="${esc(m.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="m-${esc(m.id)}">Löschen</button>`)}</div>`}
     </div>`;
@@ -1748,7 +1782,12 @@ document.addEventListener("change", e => {
     if (t.dataset.field === "name" && !v) { toast("Bezeichnung darf nicht leer sein."); render(); return; }
     l[i][t.dataset.field] = v; Store.upsert("config", S.config.id || pbId(), { meldestellen: l }).then(() => toast("Gespeichert")); return;
   }
-  if (t.dataset.mem && isAdmin()) { const v = t.value.trim(); if (t.dataset.field === "name" && !v) { toast("Name darf nicht leer sein."); render(); return; } Store.upsert("members", t.dataset.mem, { [t.dataset.field]: v }).then(() => toast("Gespeichert")); return; }
+  if (t.dataset.mem && isAdmin()) {
+    const v = t.value.trim(), fld = t.dataset.field;
+    if (fld === "name" && !v) { toast("Name darf nicht leer sein."); render(); return; }
+    (DET_FIELD[fld] ? saveDetail(t.dataset.mem, { [DET_FIELD[fld]]: v }) : Store.upsert("members", t.dataset.mem, { [fld]: v })).then(() => toast("Gespeichert")); return;
+  }
+  if (t.dataset.nachweis && t.files && t.files.length && isAdmin()) { const fs = [...t.files]; t.value = ""; uploadNachweis(t.dataset.nachweis, fs); return; }
   if (t.dataset.drstd && isAdmin()) { S.drones.forEach(x => { if (x.standard && x.id !== t.dataset.drstd) Store.upsert("drones", x.id, { standard: false }); }); Store.upsert("drones", t.dataset.drstd, { standard: true, privat: false }).then(() => toast("Standard-Drohne gesetzt")); return; }
   if (t.dataset.drpriv && isAdmin()) { Store.upsert("drones", t.dataset.drpriv, t.checked ? { privat: true, standard: false } : { privat: false }).then(() => toast("Gespeichert")); return; }
   if (t.dataset.dr && isAdmin()) { const v = t.value.trim(); if (t.dataset.field === "name" && !v) { toast("Bezeichnung darf nicht leer sein."); render(); return; } Store.upsert("drones", t.dataset.dr, { [t.dataset.field === "typ" ? "modell" : t.dataset.field]: v }).then(() => toast("Gespeichert")); return; }
@@ -1762,6 +1801,13 @@ document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.id === "logText") { e.preventDefault(); act("logadd", e.target); }
 });
 document.addEventListener("click", e => { const b = e.target.closest("[data-act]"); if (b) act(b.dataset.act, b); });
+// Bescheinigung öffnen: immer mit frischem Zugriffsschlüssel (der gilt nur wenige Minuten)
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[data-nwopen]"); if (!a) return;
+  e.preventDefault(); const w = window.open("", "_blank");
+  fileTok = { t: "", at: 0, p: null };
+  fileToken().then(() => { const m = S.members.find(x => x.id === a.dataset.nwopen); const u = m && nachweisURL(m, a.dataset.n); if (u && w) w.location = u; else if (u) location.href = u; else { if (w) w.close(); toast("Datei nicht erreichbar."); } }, () => { if (w) w.close(); toast("Keine Verbindung zum Server."); });
+});
 
 function act(a, b) {
   const d = S.draft;
@@ -1935,14 +1981,19 @@ function act(a, b) {
     case "csv": hoursCSV(); break;
     case "addmember": {
       const n = $("#newMember"), a = $("#newMemberA"); const name = n.value.trim(); if (!name) { toast("Bitte einen Namen eingeben."); n.focus(); return; }
-      Store.create("members", { name, abteilung: a ? a.value : "", aktiv: true, ausbildungen: [] }).then(() => toast(name + " hinzugefügt"));
+      Store.create("members", { name, aktiv: true }).then(id => { if (a && a.value) { S.newDet = S.newDet || {}; S.newDet[id] = pbId(); Store.upsert("mitgliederdetails", S.newDet[id], { member: id, abteilung: a.value }); } toast(name + " hinzugefügt"); });
       n.value = ""; n.focus(); break;
+    }
+    case "delnachweis": {
+      S.confirm = null; const m = S.members.find(x => x.id === b.dataset.id); if (!m || !m.detId) return;
+      pb.collection("mitgliederdetails").update(m.detId, { "nachweise-": [b.dataset.n] }).then(rec => { Store.put("mitgliederdetails", rec); toast("Gelöscht"); }, () => toast("Löschen fehlgeschlagen."));
+      break;
     }
     case "editmember": S.editMember = S.editMember === b.dataset.id ? null : b.dataset.id; render(); break;
     case "mausb": {
       if (!isAdmin()) return; const m = S.members.find(x => x.id === b.dataset.id); if (!m) return;
       const l = m.ausbildungen.includes(b.dataset.v) ? m.ausbildungen.filter(x => x !== b.dataset.v) : [...m.ausbildungen, b.dataset.v];
-      Store.upsert("members", m.id, { ausbildungen: l }); break;
+      saveDetail(m.id, { ausbildungen: l }); break;
     }
     case "togglemember": { const m = S.members.find(x => x.id === b.dataset.id); Store.upsert("members", m.id, { aktiv: m.aktiv === false }); break; }
     case "delmember": S.confirm = null; Store.del("members", b.dataset.id).then(() => toast("Gelöscht")); break;
@@ -2140,8 +2191,7 @@ async function reportPDF() {
       const t = (m.team || []).find(x => x.memberId === id);
       const roles = {}; (m.flights || []).forEach(f => (f.crew || []).forEach(cc => { if (cc.memberId === id) roles[cc.role] = (roles[cc.role] || 0) + flightMin(f); }));
       const z = dienstZeit(m, id);
-      const mm = S.members.find(x => x.id === id) || {};
-      return [memberName(id) + (mm.dienstgrad ? "\n" + mm.dienstgrad : ""), t && t.ort === "wache" ? "Wache" : "Einsatzstelle", `${z.von || "–"} – ${z.bis || "–"}${z.entlassen ? " (entl.)" : ""}`, (t && t.funktion) || "", Object.entries(roles).map(([r, mn]) => `${ROLES_S[r] || r} ${fmtH(mn)} h`).join(", ") || "–"];
+      return [memberName(id), t && t.ort === "wache" ? "Wache" : "Einsatzstelle", `${z.von || "–"} – ${z.bis || "–"}${z.entlassen ? " (entl.)" : ""}`, (t && t.funktion) || "", Object.entries(roles).map(([r, mn]) => `${ROLES_S[r] || r} ${fmtH(mn)} h`).join(", ") || "–"];
     }), [40, 22, 30, 34, 52]);
   }
   if ((m.flights || []).length) {
@@ -2187,9 +2237,7 @@ async function personPDF() {
   pdfHeader(c, "Tätigkeitsnachweis UAS", unitLabel(), [m.name, "Stand " + fmtDate(today())], logo);
   sec(c, "Person & Routine");
   if (m.gesperrt) { const ak = S.sperren.find(x => x.member === m.id && !x.bis); para(c, "Pilotenfreigabe", `Als Pilot gesperrt${ak ? " seit " + fmtDate(ak.seit) + (ak.grund ? " – Grund: " + ak.grund : "") : ""}.`); }
-  kv(c, [["Name", m.name], ["Abteilung", m.abteilung], ["Dienstgrad", m.dienstgrad],
-    ["Ausbildung", m.ausbildungen.join(", "), 2], ["UAS-Nachweis gültig bis", m.uasBis ? fmtDate(m.uasBis) : ""],
-    ["Bemerkung", m.quali, 2], ["Status", RSTAT[r.status][1]],
+  kv(c, [["Name", m.name, 2], ["Status", RSTAT[r.status][1]],
     ["Pilot 30 Tage", `${fmtH(r.a)} h (Ziel ${fmtH(r.m30)} h)`], ["Pilot 90 Tage", `${fmtH(r.b)} h (Ziel ${fmtH(r.m90)} h)`], [r.untilLabel || "Gültigkeit", r.until ? fmtDate(r.until) : "–"],
     ["Pilot im Einsatz", `${fmtH(pe.min)} h (${pe.n} Flüge)`], ["Pilot in Übung", `${fmtH(pu.min)} h (${pu.n} Flüge)`], ["Letzter Pilotenflug", r.last ? fmtDate(r.last) : "–"],
     ["Einsätze", String(ms.filter(x => x.typ !== "uebung").length)], ["Übungen", String(ms.filter(x => x.typ === "uebung").length)], ["Dienstzeit gesamt", fmtH(ms.reduce((s, x) => s + missionDienst(x, m.id), 0)) + " h"]]);
