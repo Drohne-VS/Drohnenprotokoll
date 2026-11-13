@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 13.11.2026 · App-Version 2.1.1 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
+Stand: 13.11.2026 · App-Version 2.1.2 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
 
 ---
 
@@ -71,7 +71,7 @@ und mit Playwright durchklicken (Testzugänge nur lokal anlegen).
 | `mitgliederdetails` | **nur Admin**: member, abteilung, dienstgrad, ausbildungen, uasBis, bemerkung, `nachweise` (geschützte PDFs/Bilder, z. B. Fernpiloten-Zeugnis) |
 | `pilotsperren` | Sperrvermerke (nur Admin): member, grund, seit, bis, aufhebung, autor |
 | `drones` | Drohnen: Name, Modell, Kennung, aktiv, `standard` (vorausgewählt), `privat`, `ausserBetrieb` + `ausserBetriebGrund` (für alle lesbar), `inBetriebSeit` |
-| `wartung` | **nur Admin**: Wartungsbuch je Drohne – drone, datum, art, bemerkung, `dateien` (geschützt), autor |
+| `wartung` | **nur Admin**: Wartungsbuch je Drohne – drone, datum, art, `propeller` (Propeller/Verschleißteile dabei getauscht), bemerkung, `dateien` (geschützt), autor |
 | `missions` | Berichte: `typ` (einsatz/uebung), `status` (entwurf/abgeschlossen), `datum`, `data` (JSON mit allem Übrigen, s. u.) |
 | `protokoll` | Protokolleinträge: mission, zeit, text, tag, autor |
 | `fotos` | Bilder: mission, bild (geschützte Datei, Thumbs 400x0/1200x0), zeit, quelle (einsatzstelle/drohne), beschreibung |
@@ -157,7 +157,7 @@ blockiert, bleiben aber für Spotter/Techniker/Verbindung einsetzbar. Aufheben m
 
 **Wartung (V2.1, nur Admin):** Stammdaten → Drohne → „Wartung“ öffnet die Drohnenseite (`#d-<id>`):
 Wartungsbuch (Arten: Inspektion, Wartung durch DJI/Händler, Propeller/Verschleißteile getauscht,
-Reparatur, Firmware, Scheinwerfer, Lautsprecher, Sonstiges; Datei optional), Flugzeit der Drohne
+Reparatur, Firmware, Scheinwerfer, Lautsprecher, Sonstiges; Datei optional; Haken „Propeller/Verschleißteile dabei getauscht“ – auch nachträglich in der Liste – setzt den Propeller-Zähler zurück, z. B. bei Service), Flugzeit der Drohne
 automatisch aus den Berichten, „In Betrieb seit“. Fristen (in Stammdaten änderbar, vorbelegt nach
 Angaben zur DJI Matrice 4 mit Scheinwerfer/Lautsprecher): Inspektion alle 6 Monate; Propeller/
 Verschleißteile nach 200 h oder 12 Monaten. Gelb 30 Tage vorher bzw. ab 90 % der Stunden, rot bei

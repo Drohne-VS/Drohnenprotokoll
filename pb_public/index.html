@@ -635,7 +635,7 @@ function droneMin(id, seit) {
   S.missions.forEach(m => { if (seit && !((m.datum || "") > seit)) return; (m.flights || []).forEach(f => { if (f.droneId === id) s += flightMin(f); }); });
   return s;
 }
-function lastWart(id, reset) { const a = S.wartung.find(w => w.drone === id && (WART_ART.find(x => x.k === w.art) || {}).reset === reset && w.datum); return a ? a.datum : null; }
+function lastWart(id, reset) { const a = S.wartung.find(w => w.drone === id && w.datum && ((WART_ART.find(x => x.k === w.art) || {}).reset === reset || (reset === "prop" && w.propeller))); return a ? a.datum : null; }
 // Wartungsstand: Inspektion (Monate) und Propeller/Verschleißteile (Stunden oder Monate, was zuerst kommt)
 function wartState(d) {
   const R = wRule(), base = d.inBetriebSeit || null, out = [];
@@ -704,7 +704,7 @@ const Store = (() => {
       logoUrl: cf.logo && cf.collectionId ? pb.files.getURL(cf, cf.logo) : "" } : {};
     S.protokoll = recs("protokoll").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit, text: r.text, tag: r.tag || "", created: r.created || "", _pending: !!r._pending }))
       .sort((a, b) => (tmin(a.zeit) ?? 0) - (tmin(b.zeit) ?? 0) || String(a.created).localeCompare(String(b.created)));
-    S.wartung = recs("wartung").map(r => ({ id: r.id, drone: r.drone, datum: r.datum || "", art: r.art || "", bemerkung: r.bemerkung || "", dateien: Array.isArray(r.dateien) ? r.dateien : [], created: r.created || "", _pending: !!r._pending }))
+    S.wartung = recs("wartung").map(r => ({ id: r.id, drone: r.drone, datum: r.datum || "", art: r.art || "", propeller: !!r.propeller || r.art === "propeller", bemerkung: r.bemerkung || "", dateien: Array.isArray(r.dateien) ? r.dateien : [], created: r.created || "", _pending: !!r._pending }))
       .sort((a, b) => String(b.datum + b.created).localeCompare(String(a.datum + a.created)));
     S.fotos = recs("fotos").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit || "", quelle: r.quelle || "", beschreibung: r.beschreibung || "", created: r.created || "" }));
     S.pending = outbox.length;
@@ -826,7 +826,7 @@ function downloadFile(filename, data) {
 }
 
 /* ---------- Fotos (V2.0) ---------- */
-const APP_VERSION = "2.1.1";
+const APP_VERSION = "2.1.2";
 const QUELLE = { einsatzstelle: "Einsatzstelle", drohne: "Drohne" };
 const FotoQ = (() => {
   let dbp = null, flushing = false, items = [];
@@ -1662,12 +1662,13 @@ function vDrohne() {
       <label class="f"><span>Datum</span><input type="date" id="w-datum" value="${esc(S.wForm && S.wForm.datum || today())}"></label>
       <label class="f"><span>Art</span><select id="w-art">${WART_ART.filter(a => !a.auto).map(a => `<option value="${a.k}" ${S.wForm && S.wForm.art === a.k ? "selected" : ""}>${esc(a.l)}</option>`).join("")}</select></label>
       <label class="f w2"><span>Bemerkung</span><input id="w-bem" value="${esc(S.wForm && S.wForm.bem || "")}" placeholder="z. B. alle 4 Propeller neu, Firmware 10.01, Scheinwerfer geprüft"></label>
+      <label class="f w2 chk" style="display:flex;gap:8px;align-items:center;flex-direction:row"><input type="checkbox" id="w-prop" ${S.wForm && S.wForm.prop ? "checked" : ""} style="width:auto"><span style="text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink)">Propeller / Verschleißteile dabei getauscht</span></label>
       <label class="f w2"><span>Datei anhängen (optional, PDF/Foto)</span><input type="file" id="w-file" accept="application/pdf,image/*" multiple ${S.online ? "" : "disabled"}></label>
     </div>
     <div class="row"><button class="primary" data-act="wadd" data-id="${esc(d.id)}">Eintrag speichern</button></div>
-    <p class="muted" style="font-size:13px">„Inspektion“ und „Wartung durch DJI/Händler“ setzen die ${R.inspMon}-Monats-Frist neu. „Propeller/Verschleißteile getauscht“ setzt den Zähler (${R.propStd} h bzw. ${R.propMon} Monate) zurück. Die Flugstunden zählt die App selbst aus den Protokollen.</p>
-    ${list.length ? `<div class="tbl-wrap"><table><thead><tr><th>Datum</th><th>Art</th><th>Bemerkung</th><th>Dateien</th><th></th></tr></thead><tbody>
-    ${list.map(w => `<tr><td class="mono">${fmtDate(w.datum)}</td><td>${esc(wartArt(w.art))}</td><td>${esc(w.bemerkung || "–")}</td>
+    <p class="muted" style="font-size:13px">„Inspektion“ und „Wartung durch DJI/Händler“ setzen die ${R.inspMon}-Monats-Frist neu. „Propeller/Verschleißteile getauscht“ – als eigene Art oder per Haken, z. B. beim Service – setzt den Zähler (${R.propStd} h bzw. ${R.propMon} Monate) zurück. Den Haken kannst du in der Liste auch nachträglich setzen. Die Flugstunden zählt die App selbst aus den Protokollen.</p>
+    ${list.length ? `<div class="tbl-wrap"><table><thead><tr><th>Datum</th><th>Art</th><th>Propeller neu</th><th>Bemerkung</th><th>Dateien</th><th></th></tr></thead><tbody>
+    ${list.map(w => `<tr><td class="mono">${fmtDate(w.datum)}</td><td>${esc(wartArt(w.art))}</td><td>${w.art === "sperre" || w.art === "freigabe" ? "" : `<input type="checkbox" id="wp-${esc(w.id)}" data-wprop="${esc(w.id)}" ${w.propeller ? "checked" : ""} ${w.art === "propeller" ? "disabled" : ""} aria-label="Propeller/Verschleißteile getauscht">`}</td><td>${esc(w.bemerkung || "–")}</td>
       <td>${w.dateien.map(n => `<a href="#" data-wopen="${esc(w.id)}" data-n="${esc(n)}">${esc(nice(n))}</a>`).join("<br>")}${S.online && !w._pending ? `<label class="sm-link" for="wf-${esc(w.id)}" style="cursor:pointer;display:block;font-size:12.5px;color:var(--muted)">+ Datei</label><input type="file" id="wf-${esc(w.id)}" data-wfile="${esc(w.id)}" accept="application/pdf,image/*" multiple hidden>` : ""}</td>
       <td class="r" style="white-space:nowrap">${S.confirm === "w-" + w.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="wdel" data-id="${esc(w.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="w-${esc(w.id)}">Löschen</button>`}</td></tr>`).join("")}
     </tbody></table></div>` : `<p class="muted">Noch keine Einträge.</p>`}
@@ -1876,7 +1877,7 @@ document.addEventListener("input", e => {
   const t = e.target;
   if (t.dataset.b && S.draft) { setPath(S.draft, t.dataset.b, t.value); markDirty(); updateDerived(); return; }
   if (t.dataset.filter === "q") { S.filter.q = t.value; render(); }
-  if (["w-datum", "w-art", "w-bem"].includes(t.id)) S.wForm = { datum: $("#w-datum").value, art: $("#w-art").value, bem: $("#w-bem").value };
+  if (["w-datum", "w-art", "w-bem"].includes(t.id)) S.wForm = { datum: $("#w-datum").value, art: $("#w-art").value, bem: $("#w-bem").value, prop: $("#w-prop").checked };
 });
 document.addEventListener("change", e => {
   const t = e.target;
@@ -1934,7 +1935,8 @@ document.addEventListener("change", e => {
     Store.upsert("config", S.config.id || pbId(), { wartung: { ...wRule(), [t.dataset.wcfg]: n } }).then(() => toast("Gespeichert")); return; }
   if (t.dataset.dib && isAdmin()) { Store.upsert("drones", t.dataset.dib, { inBetriebSeit: t.value }).then(() => toast("Gespeichert")); return; }
   if (t.dataset.wfile && t.files && t.files.length && isAdmin()) { const fs = [...t.files]; t.value = ""; uploadWart(t.dataset.wfile, fs); return; }
-  if (["w-datum", "w-art", "w-bem"].includes(t.id)) { S.wForm = { datum: $("#w-datum").value, art: $("#w-art").value, bem: $("#w-bem").value }; return; }
+  if (["w-datum", "w-art", "w-bem", "w-prop"].includes(t.id)) { S.wForm = { datum: $("#w-datum").value, art: $("#w-art").value, bem: $("#w-bem").value, prop: $("#w-prop").checked }; return; }
+  if (t.dataset.wprop && isAdmin()) { Store.upsert("wartung", t.dataset.wprop, { propeller: t.checked }).then(() => toast("Gespeichert")); return; }
   if (t.dataset.nachweis && t.files && t.files.length && isAdmin()) { const fs = [...t.files]; t.value = ""; uploadNachweis(t.dataset.nachweis, fs); return; }
   if (t.dataset.drstd && isAdmin()) { S.drones.forEach(x => { if (x.standard && x.id !== t.dataset.drstd) Store.upsert("drones", x.id, { standard: false }); }); Store.upsert("drones", t.dataset.drstd, { standard: true, privat: false }).then(() => toast("Standard-Drohne gesetzt")); return; }
   if (t.dataset.drpriv && isAdmin()) { Store.upsert("drones", t.dataset.drpriv, t.checked ? { privat: true, standard: false } : { privat: false }).then(() => toast("Gespeichert")); return; }
@@ -2140,12 +2142,12 @@ function act(a, b) {
       Store.upsert("drones", id, { ausserBetrieb: false, ausserBetriebGrund: "" }).then(() => toast("Drohne wieder in Betrieb.")); break;
     }
     case "wadd": {
-      if (!isAdmin()) return; const id = b.dataset.id, datum = $("#w-datum").value, art = $("#w-art").value, bem = $("#w-bem").value.trim(), fi = $("#w-file");
+      if (!isAdmin()) return; const id = b.dataset.id, datum = $("#w-datum").value, art = $("#w-art").value, bem = $("#w-bem").value.trim(), fi = $("#w-file"), prop = $("#w-prop").checked || art === "propeller";
       if (!datum) { toast("Bitte ein Datum wählen."); return; }
       const files = fi && fi.files ? [...fi.files] : [];
       if (files.length && !S.online) { toast("Dateien lassen sich nur mit Internetverbindung hochladen."); return; }
       S.wForm = null;
-      Store.create("wartung", { drone: id, datum, art, bemerkung: bem }).then(wid => { toast("Eintrag gespeichert"); if (files.length) uploadWart(wid, files); });
+      Store.create("wartung", { drone: id, datum, art, bemerkung: bem, propeller: prop }).then(wid => { toast("Eintrag gespeichert"); if (files.length) uploadWart(wid, files); });
       break;
     }
     case "wdel": S.confirm = null; Store.del("wartung", b.dataset.id).then(() => toast("Eintrag gelöscht")); break;
