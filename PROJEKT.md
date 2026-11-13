@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 12.11.2026 · App-Version 2.0 (gesicherter Vorgängerstand: Zweig `release-v1.1`)
+Stand: 13.11.2026 · App-Version 2.1 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
 
 ---
 
@@ -30,7 +30,7 @@ Server (z. B. mittwald) oder zur Stadt-IT ist vorgesehen.
 |---|---|
 | App-Adresse | https://drohnenprotokoll.onrender.com |
 | Code | GitHub `Drohne-VS/Drohnenprotokoll`, Zweig `main` |
-| Gesicherte Stände | Zweig `release-v1.1` (V1.1) |
+| Gesicherte Stände | Zweige `release-v1.1` (V1.1), `release-v2.0` (V2.0, vor Wartung) |
 | Server | Render, Dienst `drohnenprotokoll`, ID `srv-dbid5eqjnfac73dfuhi0`, Workspace `tea-dbicmhh42hec73d2puf0`, Region Frankfurt, Tarif Starter |
 | Daten | Render-Festplatte 1 GB, eingehängt unter `/pb/pb_data` (SQLite + Dateien) |
 | Umgebungsvariable | `SETUP_CODE` (Einmalcode für die Ersteinrichtung des ersten Admins; Wert steht nur bei Render, **nie ins Repo schreiben**) |
@@ -66,11 +66,12 @@ und mit Playwright durchklicken (Testzugänge nur lokal anlegen).
 | Collection | Inhalt |
 |---|---|
 | `users` | Anmeldung per **Benutzername**; Feld `role`: `admin` oder `tablet`; Token 30 Tage gültig |
-| `config` | ein Datensatz: Einheit, Gruppe, Logo, Routine-Minuten (`routineMin30`, `routineMin90`), `meldestellen` (JSON-Liste Name/Telefon), `listen` (Auswahllisten abteilungen/dienstgrade/ausbildungen) |
+| `config` | ein Datensatz: Einheit, Gruppe, Logo, Routine-Minuten (`routineMin30`, `routineMin90`), `meldestellen` (JSON-Liste Name/Telefon), `listen` (Auswahllisten abteilungen/dienstgrade/ausbildungen), `wartung` (JSON: inspMon, propStd, propMon) |
 | `members` | Mitglieder: Name, aktiv, `pilotGesperrt` (für alle lesbar, damit das Tablet Namen/Sperre kennt) |
 | `mitgliederdetails` | **nur Admin**: member, abteilung, dienstgrad, ausbildungen, uasBis, bemerkung, `nachweise` (geschützte PDFs/Bilder, z. B. Fernpiloten-Zeugnis) |
 | `pilotsperren` | Sperrvermerke (nur Admin): member, grund, seit, bis, aufhebung, autor |
-| `drones` | Drohnen: Name, Modell, Kennung, aktiv, `standard` (vorausgewählt), `privat` |
+| `drones` | Drohnen: Name, Modell, Kennung, aktiv, `standard` (vorausgewählt), `privat`, `ausserBetrieb` + `ausserBetriebGrund` (für alle lesbar), `inBetriebSeit` |
+| `wartung` | **nur Admin**: Wartungsbuch je Drohne – drone, datum, art, bemerkung, `dateien` (geschützt), autor |
 | `missions` | Berichte: `typ` (einsatz/uebung), `status` (entwurf/abgeschlossen), `datum`, `data` (JSON mit allem Übrigen, s. u.) |
 | `protokoll` | Protokolleinträge: mission, zeit, text, tag, autor |
 | `fotos` | Bilder: mission, bild (geschützte Datei, Thumbs 400x0/1200x0), zeit, quelle (einsatzstelle/drohne), beschreibung |
@@ -150,6 +151,17 @@ sperren“ – mit Grund, Datum und Verlauf (Collection `pilotsperren`, nur Admi
 steht nur `pilotGesperrt`; gesperrte Personen sind in allen Pilot-Auswahlen ausgegraut und als Pilot
 blockiert, bleiben aber für Spotter/Techniker/Verbindung einsetzbar. Aufheben mit Vermerk.
 
+**Wartung (V2.1, nur Admin):** Stammdaten → Drohne → „Wartung“ öffnet die Drohnenseite (`#d-<id>`):
+Wartungsbuch (Arten: Inspektion, Wartung durch DJI/Händler, Propeller/Verschleißteile getauscht,
+Reparatur, Firmware, Scheinwerfer, Lautsprecher, Sonstiges; Datei optional), Flugzeit der Drohne
+automatisch aus den Berichten, „In Betrieb seit“. Fristen (in Stammdaten änderbar, vorbelegt nach
+Angaben zur DJI Matrice 4 mit Scheinwerfer/Lautsprecher): Inspektion alle 6 Monate; Propeller/
+Verschleißteile nach 200 h oder 12 Monaten. Gelb 30 Tage vorher bzw. ab 90 % der Stunden, rot bei
+Überschreitung; Hinweis für den Admin oben auf der Startseite. Private Drohnen ohne Erinnerungen.
+Akku-Zyklen werden bewusst nicht erfasst (zeigt die DJI-App). **Außer Betrieb** (z. B. nach Absturz)
+mit Grund: Drohne im Protokoll ausgegraut, Start blockiert; Setzen/Aufheben wird im Wartungsbuch
+vermerkt. Flugdaten-Import aus der Drohne wurde bewusst verworfen (einfach halten, keine Bezahldienste).
+
 **Stunden:** Dienstzeit je Person aus Team von/bis (sonst Beginn–Ende), Flugzeit je Rolle,
 Personenseite + Tätigkeitsnachweis-PDF, Stundennachweis-PDF und CSV.
 
@@ -169,4 +181,4 @@ Stadtlogo vor offizieller Nutzung mit der Stadt abstimmen.
 - Schnellknöpfe im Protokoll: Liste der Drohnengruppe steht noch aus.
 - Notfall-Wiederherstellung des Admin-Zugangs über den Einrichtungscode (angeboten, noch nicht entschieden).
 - Datenschutz/AV-Vertrag klären; Umzug auf deutschen Server (mittwald) oder Stadt-IT.
-- V2.0 nach Testphase als `release-v2.0` sichern.
+- V2.1 nach Freigabe als `release-v2.1` sichern.

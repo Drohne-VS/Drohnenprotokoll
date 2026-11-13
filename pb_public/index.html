@@ -303,6 +303,9 @@ details.extra[open] { display: grid; gap: 14px; }
 .stat .l { font: 600 12px/1 var(--f-display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .stat .v { font: 700 28px/1.1 var(--f-display); margin-top: 6px; font-variant-numeric: tabular-nums; }
 .stat .v small { font-size: 15px; color: var(--muted); font-weight: 600; }
+.stat.warn { background: var(--warn-soft); } .stat.warn .v { color: var(--warn); }
+.stat.bad { background: var(--accent-soft); } .stat.bad .v { color: var(--accent); }
+.wl { display: grid; gap: 6px; } .wl a { font-weight: 600; }
 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: var(--r); font-size: 14px; z-index: 20; max-width: calc(100% - 32px); }
 .confirm { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; background: var(--accent-soft); padding: 4px 6px 4px 10px; border-radius: var(--r); font-size: 13px; }
@@ -489,7 +492,7 @@ const RAD = Math.PI / 180;
 const S = {
   db: null, dl: null, user: null, canWrite: null, noDb: false, booting: true,
   loaded: { missions: false, members: false, drones: false }, auth: "checking", authErr: "", authBusy: false, online: navigator.onLine, pending: 0, protokoll: [], users: null,
-  config: {}, members: [], drones: [], missions: [],
+  config: {}, members: [], drones: [], missions: [], wartung: [],
   view: "einsaetze", draft: null, dirty: false, baseStamp: null, remoteChanged: false,
   filter: { typ: "alle", jahr: "alle", q: "" }, hYear: String(new Date().getFullYear()),
   clickType: "gebiet", confirm: null, pendingHash: null, saving: false,
@@ -606,6 +609,52 @@ const RSTAT = { gruen: ["ok", "In Übung"], gelb: ["warn", "Auffrischen"], rot: 
 function rChip(st) { const [c, l] = RSTAT[st]; return `<span class="chip ${c}"><span class="dot ${st}"></span>${l}</span>`; }
 function personHash(id) { return /^[A-Za-z0-9-]+$/.test(id) ? "p-" + id : null; }
 function personLink(id, name) { const h = personHash(id); return h ? `<a class="plink" href="#${h}">${esc(name)}</a>` : `<button class="plink" style="border:0;background:none;padding:0" data-act="person" data-id="${esc(id)}">${esc(name)}</button>`; }
+/* ---------- Wartung der Drohnen ---------- */
+const WART_ART = [
+  { k: "inspektion", l: "Inspektion / Durchsicht", reset: "insp" },
+  { k: "service", l: "Wartung durch DJI / Händler", reset: "insp" },
+  { k: "propeller", l: "Propeller / Verschleißteile getauscht", reset: "prop" },
+  { k: "reparatur", l: "Reparatur / Schaden" },
+  { k: "firmware", l: "Firmware-Update" },
+  { k: "scheinwerfer", l: "Scheinwerfer" },
+  { k: "lautsprecher", l: "Lautsprecher" },
+  { k: "sonstiges", l: "Sonstiges" },
+  { k: "sperre", l: "Außer Betrieb gesetzt", auto: true },
+  { k: "freigabe", l: "Wieder in Betrieb genommen", auto: true },
+];
+const wartArt = k => (WART_ART.find(a => a.k === k) || {}).l || k || "–";
+function wRule() {
+  const w = S.config.wartung || {}, num = (v, d) => { const n = parseInt(v, 10); return isFinite(n) && n > 0 ? n : d; };
+  return { inspMon: num(w.inspMon, 6), propStd: num(w.propStd, 200), propMon: num(w.propMon, 12) };
+}
+function addMonths(iso, n) { const d = new Date(iso + "T12:00:00"); d.setMonth(d.getMonth() + n); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function daysUntil(iso) { return -daysSince(iso); }
+// Flugminuten einer Drohne aus allen Berichten; mit „seit“ nur Flüge nach diesem Tag
+function droneMin(id, seit) {
+  let s = 0;
+  S.missions.forEach(m => { if (seit && !((m.datum || "") > seit)) return; (m.flights || []).forEach(f => { if (f.droneId === id) s += flightMin(f); }); });
+  return s;
+}
+function lastWart(id, reset) { const a = S.wartung.find(w => w.drone === id && (WART_ART.find(x => x.k === w.art) || {}).reset === reset && w.datum); return a ? a.datum : null; }
+// Wartungsstand: Inspektion (Monate) und Propeller/Verschleißteile (Stunden oder Monate, was zuerst kommt)
+function wartState(d) {
+  const R = wRule(), base = d.inBetriebSeit || null, out = [];
+  const li = lastWart(d.id, "insp") || base;
+  if (!li) out.push({ k: "insp", st: "unbekannt", text: "Noch keine Inspektion eingetragen" });
+  else { const due = addMonths(li, R.inspMon), t = daysUntil(due);
+    out.push({ k: "insp", st: t < 0 ? "bad" : t <= 30 ? "warn" : "ok", due, text: t < 0 ? `Inspektion seit ${fmtDate(due)} überfällig` : `Inspektion fällig am ${fmtDate(due)}${t <= 30 ? ` (in ${t} Tagen)` : ""}` }); }
+  const lp = lastWart(d.id, "prop") || base, min = droneMin(d.id, lp), lim = R.propStd * 60;
+  const pdue = lp ? addMonths(lp, R.propMon) : null, pt = pdue ? daysUntil(pdue) : null;
+  const pst = min >= lim || (pt != null && pt < 0) ? "bad" : min >= lim * 0.9 || (pt != null && pt <= 30) ? "warn" : lp ? "ok" : "unbekannt";
+  out.push({ k: "prop", st: pst, min, lim, due: pdue,
+    text: pst === "bad" ? `Propeller/Verschleißteile tauschen (${fmtH(min)} von ${R.propStd} h${pt != null && pt < 0 ? `, Frist ${fmtDate(pdue)} abgelaufen` : ""})`
+      : `Propeller: ${fmtH(min)} von ${R.propStd} h${pdue ? `, spätestens ${fmtDate(pdue)}` : " – Wechsel noch nicht eingetragen"}` });
+  const rank = { bad: 3, warn: 2, unbekannt: 1, ok: 0 };
+  return { items: out, worst: out.reduce((a, x) => rank[x.st] > rank[a] ? x.st : a, "ok") };
+}
+const WSTAT = { ok: ["ok", "Wartung in Ordnung"], warn: ["warn", "Wartung bald fällig"], bad: ["bad", "Wartung überfällig"], unbekannt: ["neutral", "Wartung nicht erfasst"] };
+function wChip(d) { if (d.ausserBetrieb) return `<span class="chip bad">Außer Betrieb</span>`; const [c, l] = WSTAT[wartState(d).worst]; return `<span class="chip ${c}">${l}</span>`; }
+const wartDrones = () => S.drones.filter(d => d.aktiv !== false && !d.privat);
 function roleSums(entries, days) { const r = {}; entries.forEach(e => { if (days == null || within(e, days)) { const x = r[e.role] || (r[e.role] = { n: 0, min: 0 }); x.n++; x.min += e.min; } }); return r; }
 
 /* ---------- Server, Anmeldung & Offline-Speicher ---------- */
@@ -620,7 +669,7 @@ const pbId = () => { const a = "abcdefghijklmnopqrstuvwxyz0123456789"; const r =
 const me = () => pb.authStore.record || null;
 const isAdmin = () => !!me() && me().role === "admin";
 const isTablet = () => !!me() && me().role === "tablet";
-const COLS = ["config", "members", "drones", "missions", "protokoll", "fotos", "pilotsperren", "mitgliederdetails"];
+const COLS = ["config", "members", "drones", "missions", "protokoll", "fotos", "pilotsperren", "mitgliederdetails", "wartung"];
 
 const Store = (() => {
   let cache = {}, outbox = [], flushing = false, subscribed = false, timer = null;
@@ -647,13 +696,16 @@ const Store = (() => {
       nachweise: Array.isArray(x.nachweise) ? x.nachweise : [] }; }).sort(byName);
     S.sperren = recs("pilotsperren").map(r => ({ id: r.id, member: r.member, grund: r.grund || "", seit: r.seit || "", bis: r.bis || "", aufhebung: r.aufhebung || "", created: r.created || "" }))
       .sort((a, b) => String(b.seit + b.created).localeCompare(String(a.seit + a.created)));
-    S.drones = recs("drones").map(r => ({ id: r.id, name: r.name || "", typ: r.modell || "", kennung: r.kennung || "", aktiv: r.aktiv !== false, standard: !!r.standard, privat: !!r.privat }))
+    S.drones = recs("drones").map(r => ({ id: r.id, name: r.name || "", typ: r.modell || "", kennung: r.kennung || "", aktiv: r.aktiv !== false, standard: !!r.standard, privat: !!r.privat,
+      ausserBetrieb: !!r.ausserBetrieb, abGrund: r.ausserBetriebGrund || "", inBetriebSeit: r.inBetriebSeit || "" }))
       .sort((a, b) => (b.standard - a.standard) || (a.privat - b.privat) || byName(a, b));
     const cf = recs("config")[0];
-    S.config = cf ? { id: cf.id, einheit: cf.einheit || "", gruppe: cf.gruppe || "", routineMin30: cf.routineMin30 || "", routineMin90: cf.routineMin90 || "", meldestellen: Array.isArray(cf.meldestellen) ? cf.meldestellen : null, listen: cf.listen && typeof cf.listen === "object" ? cf.listen : null,
+    S.config = cf ? { id: cf.id, einheit: cf.einheit || "", gruppe: cf.gruppe || "", routineMin30: cf.routineMin30 || "", routineMin90: cf.routineMin90 || "", meldestellen: Array.isArray(cf.meldestellen) ? cf.meldestellen : null, listen: cf.listen && typeof cf.listen === "object" ? cf.listen : null, wartung: cf.wartung && typeof cf.wartung === "object" ? cf.wartung : null,
       logoUrl: cf.logo && cf.collectionId ? pb.files.getURL(cf, cf.logo) : "" } : {};
     S.protokoll = recs("protokoll").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit, text: r.text, tag: r.tag || "", created: r.created || "", _pending: !!r._pending }))
       .sort((a, b) => (tmin(a.zeit) ?? 0) - (tmin(b.zeit) ?? 0) || String(a.created).localeCompare(String(b.created)));
+    S.wartung = recs("wartung").map(r => ({ id: r.id, drone: r.drone, datum: r.datum || "", art: r.art || "", bemerkung: r.bemerkung || "", dateien: Array.isArray(r.dateien) ? r.dateien : [], created: r.created || "", _pending: !!r._pending }))
+      .sort((a, b) => String(b.datum + b.created).localeCompare(String(a.datum + a.created)));
     S.fotos = recs("fotos").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit || "", quelle: r.quelle || "", beschreibung: r.beschreibung || "", created: r.created || "" }));
     S.pending = outbox.length;
   }
@@ -689,7 +741,7 @@ const Store = (() => {
   }
   function setOnline(v) { if (S.online !== v) { S.online = v; header(); if (S.view !== "edit") render(); else actions(); } }
   function errText(o, e) {
-    const what = { missions: "Bericht", protokoll: "Protokolleintrag", members: "Mitglied", drones: "Drohne", config: "Einstellung" }[o.col] || "Änderung";
+    const what = { missions: "Bericht", protokoll: "Protokolleintrag", members: "Mitglied", drones: "Drohne", config: "Einstellung", wartung: "Wartungseintrag" }[o.col] || "Änderung";
     if (e.status === 403 || e.status === 404) return `${what} wurde nicht gespeichert: keine Berechtigung (z. B. Bericht inzwischen abgeschlossen).`;
     const d = e.response && e.response.data; const f = d && Object.keys(d)[0];
     return `${what} wurde vom Server abgelehnt${f ? " (Feld „" + f + "“: " + (d[f].message || "ungültig") + ")" : ""}.`;
@@ -774,7 +826,7 @@ function downloadFile(filename, data) {
 }
 
 /* ---------- Fotos (V2.0) ---------- */
-const APP_VERSION = "2.0";
+const APP_VERSION = "2.1";
 const QUELLE = { einsatzstelle: "Einsatzstelle", drohne: "Drohne" };
 const FotoQ = (() => {
   let dbp = null, flushing = false, items = [];
@@ -897,7 +949,7 @@ function startSession() {
 }
 function logout(expired) {
   Store.stop(); pb.authStore.clear();
-  Object.assign(S, { auth: "login", draft: null, dirty: false, missions: [], members: [], drones: [], protokoll: [], config: {}, users: null, confirm: null,
+  Object.assign(S, { auth: "login", draft: null, dirty: false, missions: [], members: [], drones: [], protokoll: [], wartung: [], config: {}, users: null, confirm: null,
     loaded: { missions: false, members: false, drones: false }, authErr: expired ? "Bitte erneut anmelden." : "" });
   ignoreHash = true; location.hash = ""; render();
 }
@@ -965,7 +1017,7 @@ function header() {
   $("#tabs").hidden = !authed;
   document.querySelectorAll(".tab").forEach(t => {
     t.hidden = t.dataset.admin != null && !isAdmin();
-    t.setAttribute("aria-current", t.dataset.tab === (S.view === "edit" || S.view === "load" ? "einsaetze" : S.view === "person" ? "stunden" : S.view) ? "page" : "false");
+    t.setAttribute("aria-current", t.dataset.tab === (S.view === "edit" || S.view === "load" ? "einsaetze" : S.view === "person" ? "stunden" : S.view === "drohne" ? "stammdaten" : S.view) ? "page" : "false");
   });
   const who = $("#who");
   if (!authed) { who.innerHTML = ""; return; }
@@ -992,12 +1044,13 @@ window.addEventListener("hashchange", () => {
 function route() {
   let h = location.hash.slice(1);
   if (S.auth !== "ok") { render(); return; }
-  if (!isAdmin() && (h === "stunden" || h === "stammdaten" || h.startsWith("p-"))) { h = "einsaetze"; ignoreHash = true; location.hash = h; }
+  if (!isAdmin() && (h === "stunden" || h === "stammdaten" || h.startsWith("p-") || h.startsWith("d-"))) { h = "einsaetze"; ignoreHash = true; location.hash = h; }
   S.confirm = null;
   if (h === "stunden" || h === "stammdaten") { S.view = h; S.draft = null; S.dirty = false; }
   else if (h === "neu-einsatz" || h === "neu-uebung") {
     if (!(S.view === "edit" && S.draft && S.draft._new && S.draft._hash === h)) { S.view = "edit"; newDraft(h === "neu-uebung" ? "uebung" : "einsatz", h); }
   }
+  else if (h.startsWith("d-")) { S.view = "drohne"; if (S.droneId !== h.slice(2)) S.wForm = null; S.droneId = h.slice(2); S.draft = null; S.dirty = false; S.lockForm = null; }
   else if (h.startsWith("p-")) { S.view = "person"; S.personId = h.slice(2); S.draft = null; S.dirty = false; }
   else if (h.startsWith("e-")) {
     const id = h.slice(2);
@@ -1038,6 +1091,7 @@ function render() {
   if (!S.online) html += `<div class="banner warn">Kein Netz. Du kannst normal weiterarbeiten – alles wird auf diesem Gerät gespeichert und automatisch übertragen, sobald wieder Verbindung besteht${S.pending ? ` (${S.pending} ${S.pending === 1 ? "Eintrag wartet" : "Einträge warten"})` : ""}.</div>`;
   if (S.view === "stunden") html += vHours();
   else if (S.view === "person") html += vPerson();
+  else if (S.view === "drohne") html += vDrohne();
   else if (S.view === "stammdaten") html += vStamm();
   else if (S.view === "edit") html += vEdit();
   else if (S.view === "load") html += `<div class="sheet empty"><h3>Bericht wird geladen …</h3></div>`;
@@ -1062,6 +1116,10 @@ function vList() {
     <div class="row">${canNew ? `<button class="primary" data-act="new" data-typ="einsatz">+ Neuer Einsatz</button><button data-act="new" data-typ="uebung">+ Neue Übung</button>` : ""}</div></div>`;
   if (needsStamm && isAdmin()) h += `<div class="banner info">Lege zuerst unter <a href="#stammdaten">Stammdaten</a> eure Mitglieder und Drohnen an – dann kannst du sie in Flügen als Pilot, Spotter, Techniker oder Verbindung auswählen.</div>`;
   else if (needsStamm) h += `<div class="banner info">Es sind noch keine Mitglieder angelegt. Das erledigt der Admin in den Stammdaten.</div>`;
+  if (isAdmin()) {
+    const wl = S.drones.filter(x => x.aktiv !== false && (x.ausserBetrieb || (!x.privat && ["warn", "bad"].includes(wartState(x).worst))));
+    if (wl.length) h += `<div class="banner warn"><div class="wl"><b>Wartung</b>${wl.map(x => { const ws = wartState(x); return `<div><a href="#d-${esc(x.id)}">${esc(x.name)}</a>: ${x.ausserBetrieb ? `außer Betrieb${x.abGrund ? " (" + esc(x.abGrund) + ")" : ""}` : ws.items.filter(i => i.st === "warn" || i.st === "bad").map(i => esc(i.text)).join(" · ")}</div>`; }).join("")}</div></div>`;
+  }
   if (isTablet()) h += `<p class="muted" style="font-size:13.5px">Auf dem Tablet erscheinen nur offene Berichte. Abgeschlossene Berichte sieht und korrigiert der Admin.</p>`;
   h += `<div class="stats">
     <div class="stat"><div class="l">Einsätze</div><div class="v">${nE}</div></div>
@@ -1105,10 +1163,10 @@ function memberOptions(sel, exclude) {
   if (sel && !S.members.find(m => m.id === sel)) o += `<option value="${esc(sel)}" selected>(entfernt)</option>`;
   return o;
 }
-function standardDrone() { const d = S.drones.find(x => x.standard && x.aktiv !== false); return d ? d.id : (S.drones.filter(x => x.aktiv !== false && !x.privat).length === 1 ? S.drones.find(x => x.aktiv !== false && !x.privat).id : ""); }
+function standardDrone() { const ok = x => x.aktiv !== false && !x.ausserBetrieb; const d = S.drones.find(x => x.standard && ok(x)); return d ? d.id : (S.drones.filter(x => ok(x) && !x.privat).length === 1 ? S.drones.find(x => ok(x) && !x.privat).id : ""); }
 function droneOptions(sel) {
   const act = S.drones.filter(d => d.aktiv !== false || d.id === sel);
-  let o = `<option value="">– Drohne wählen –</option>` + act.map(d => `<option value="${esc(d.id)}" ${d.id === sel ? "selected" : ""}>${esc(d.name)}${d.kennung ? " · " + esc(d.kennung) : ""}${d.standard ? " (Standard)" : d.privat ? " (privat)" : ""}</option>`).join("");
+  let o = `<option value="">– Drohne wählen –</option>` + act.map(d => `<option value="${esc(d.id)}" ${d.id === sel ? "selected" : ""} ${d.ausserBetrieb && d.id !== sel ? "disabled" : ""}>${esc(d.name)}${d.kennung ? " · " + esc(d.kennung) : ""}${d.ausserBetrieb ? " – außer Betrieb" : d.standard ? " (Standard)" : d.privat ? " (privat)" : ""}</option>`).join("");
   if (sel && !S.drones.find(d => d.id === sel)) o += `<option value="${esc(sel)}" selected>(entfernt)</option>`;
   return o;
 }
@@ -1307,7 +1365,7 @@ function vFlug() {
   const dr = S.drones.find(x => x.id === droneSel);
   let h = `<section class="sec" id="sec-fluege"><div class="sec-h"><h2><span class="k">04</span>Flug &amp; Crew</h2><span class="chip ${st === "luft" ? "ok" : st === "pause" ? "warn" : "neutral"}">${stLabel}</span></div>
     <div class="grid">
-      <label class="f w2"><span>Drohne</span><select id="fl-drone" data-drone ${dis} class="${droneSel ? "" : "req"}">${droneOptions(droneSel)}</select>${dr && dr.privat && d.typ !== "uebung" ? `<span class="chip warn" style="justify-self:start">Private Drohne im Einsatz</span>` : ""}</label>
+      <label class="f w2"><span>Drohne</span><select id="fl-drone" data-drone ${dis} class="${droneSel ? "" : "req"}">${droneOptions(droneSel)}</select>${dr && dr.privat && d.typ !== "uebung" ? `<span class="chip warn" style="justify-self:start">Private Drohne im Einsatz</span>` : ""}${dr && dr.ausserBetrieb && d.status !== "abgeschlossen" ? `<span class="chip bad" style="justify-self:start">Außer Betrieb – bitte andere Drohne wählen</span>` : ""}</label>
       <div class="f"><span class="wx-l">Start</span><div class="mono" style="font-size:18px">${first && first.start ? esc(first.start) : "–"}</div></div>
       <div class="f"><span class="wx-l">Ende</span><div class="mono" style="font-size:18px">${st === "ende" && last ? esc(last.landung) : "–"}</div></div>
       <div class="f"><span class="wx-l">Flugzeit</span><div class="mono" style="font-size:18px">${fmtH(missionFlightMin(d))} h</div></div>
@@ -1546,6 +1604,63 @@ function vSperre(m) {
   h += `<p class="muted" style="font-size:12.5px">Gründe und Verlauf sieht nur der Admin; auf dem Tablet erscheint lediglich „als Pilot gesperrt“.</p>`;
   return h + `</section></div>`;
 }
+/* ----- Drohne: Wartung & Betrieb (nur Admin) ----- */
+function wartURL(w, name) { const r = Store.raw("wartung", w.id); return r && r.collectionId && fileTok.t ? pb.files.getURL(r, name, { token: fileTok.t }) : ""; }
+function vDrohne() {
+  const d = S.drones.find(x => x.id === S.droneId);
+  if (!d) return `<div class="sheet empty"><h3>${S.loaded.drones ? "Drohne nicht gefunden" : "Wird geladen …"}</h3><p><a href="#stammdaten">Zu den Stammdaten</a></p></div>`;
+  const R = wRule(), ws = wartState(d), list = S.wartung.filter(w => w.drone === d.id);
+  const tot = droneMin(d.id), nF = S.missions.reduce((s, m) => s + (m.flights || []).filter(f => f.droneId === d.id).length, 0);
+  if (list.some(w => w.dateien.length) && !fileTok.t && S.online) fileToken().then(() => render(), () => {});
+  const nice = n => n.replace(/_[a-z0-9]{10}(\.[a-z0-9]+)$/i, "$1");
+  const ins = ws.items.find(x => x.k === "insp"), pr = ws.items.find(x => x.k === "prop");
+  let h = `<div class="head"><div>
+    <div class="row" style="gap:8px;margin-bottom:6px"><a href="#stammdaten" class="btn" style="padding:6px 10px;font-size:13px">← Stammdaten</a>${wChip(d)}${d.privat ? `<span class="chip neutral">Privat</span>` : ""}${d.standard ? `<span class="chip neutral">Standard</span>` : ""}</div>
+    <h1>${esc(d.name)}</h1><p class="sub">${esc([d.typ, d.kennung].filter(Boolean).join(" · ") || "Modell nicht eingetragen")}</p></div></div>`;
+  // Betrieb / außer Betrieb
+  h += `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Betrieb</h2>${d.ausserBetrieb ? `<span class="chip bad">Außer Betrieb</span>` : `<span class="chip ok">Einsatzbereit</span>`}</div>`;
+  if (d.ausserBetrieb) {
+    h += `<p>Außer Betrieb${d.abGrund ? ` – Grund: ${esc(d.abGrund.replace(/[.!]$/, ""))}` : ""}. Im Protokoll kann diese Drohne nicht ausgewählt und nicht gestartet werden.</p>`;
+    h += S.lockForm === "dun-" + d.id ? `<div class="askpil"><label class="f"><span>Wieder in Betrieb nehmen – Vermerk (optional)</span><input id="dunlockText" placeholder="z. B. Prüfung durch Händler ohne Befund"></label><button class="go" data-act="ddounlock" data-id="${esc(d.id)}">Wieder in Betrieb</button><button class="ghost" data-act="nolock">Abbrechen</button></div>`
+      : `<div><button data-act="dunlockform" data-id="${esc(d.id)}">Wieder in Betrieb nehmen …</button></div>`;
+  } else {
+    h += `<p class="muted" style="font-size:13.5px">Nach einem Absturz, einer harten Landung oder einem Defekt die Drohne außer Betrieb setzen. Sie lässt sich dann im Protokoll nicht mehr auswählen, bis du sie wieder freigibst.</p>`;
+    h += S.lockForm === "dlk-" + d.id ? `<div class="askpil" style="border-color:var(--accent);background:var(--accent-soft)"><label class="f"><span>Grund</span><input id="dlockText" placeholder="z. B. harte Landung, Propeller beschädigt"></label><button class="stop" data-act="ddolock" data-id="${esc(d.id)}">Außer Betrieb setzen</button><button class="ghost" data-act="nolock">Abbrechen</button></div>`
+      : `<div><button class="danger" data-act="dlockform" data-id="${esc(d.id)}">Außer Betrieb setzen …</button></div>`;
+  }
+  h += `</section></div>`;
+  // Kennzahlen
+  const cls = st => st === "bad" ? "bad" : st === "warn" ? "warn" : "";
+  h += `<div class="stats">
+    <div class="stat"><div class="l">Flugzeit gesamt</div><div class="v">${fmtH(tot)} <small>h · ${nF} Flüge</small></div></div>
+    <div class="stat ${cls(pr.st)}"><div class="l">Seit Propellerwechsel</div><div class="v">${fmtH(pr.min)} <small>/ ${R.propStd} h</small></div></div>
+    <div class="stat ${cls(ins.st)}"><div class="l">Nächste Inspektion</div><div class="v" style="font-size:20px">${ins.due ? fmtDate(ins.due) : "–"}</div></div>
+    <div class="stat"><div class="l">Propeller spätestens</div><div class="v" style="font-size:20px">${pr.due ? fmtDate(pr.due) : "–"}</div></div></div>`;
+  if (!d.privat) {
+    const bad = ws.items.filter(x => x.st !== "ok");
+    if (bad.length) h += `<div class="banner ${ws.worst === "bad" ? "warn" : "info"}">${bad.map(x => esc(x.text)).join("<br>")}</div>`;
+  } else h += `<p class="muted" style="font-size:13px">Private Drohne: Es gibt keine Erinnerungen. Das Wartungsbuch kannst du trotzdem führen.</p>`;
+  // Wartungsbuch
+  h += `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Wartungsbuch</h2><span class="muted">${list.length}</span></div>
+    <div class="grid">
+      <label class="f"><span>Datum</span><input type="date" id="w-datum" value="${esc(S.wForm && S.wForm.datum || today())}"></label>
+      <label class="f"><span>Art</span><select id="w-art">${WART_ART.filter(a => !a.auto).map(a => `<option value="${a.k}" ${S.wForm && S.wForm.art === a.k ? "selected" : ""}>${esc(a.l)}</option>`).join("")}</select></label>
+      <label class="f w2"><span>Bemerkung</span><input id="w-bem" value="${esc(S.wForm && S.wForm.bem || "")}" placeholder="z. B. alle 4 Propeller neu, Firmware 10.01, Scheinwerfer geprüft"></label>
+      <label class="f w2"><span>Datei anhängen (optional, PDF/Foto)</span><input type="file" id="w-file" accept="application/pdf,image/*" multiple ${S.online ? "" : "disabled"}></label>
+    </div>
+    <div class="row"><button class="primary" data-act="wadd" data-id="${esc(d.id)}">Eintrag speichern</button></div>
+    <p class="muted" style="font-size:13px">„Inspektion“ und „Wartung durch DJI/Händler“ setzen die ${R.inspMon}-Monats-Frist neu. „Propeller/Verschleißteile getauscht“ setzt den Zähler (${R.propStd} h bzw. ${R.propMon} Monate) zurück. Die Flugstunden zählt die App selbst aus den Protokollen.</p>
+    ${list.length ? `<div class="tbl-wrap"><table><thead><tr><th>Datum</th><th>Art</th><th>Bemerkung</th><th>Dateien</th><th></th></tr></thead><tbody>
+    ${list.map(w => `<tr><td class="mono">${fmtDate(w.datum)}</td><td>${esc(wartArt(w.art))}</td><td>${esc(w.bemerkung || "–")}</td>
+      <td>${w.dateien.map(n => `<a href="#" data-wopen="${esc(w.id)}" data-n="${esc(n)}">${esc(nice(n))}</a>`).join("<br>")}${S.online && !w._pending ? `<label class="sm-link" for="wf-${esc(w.id)}" style="cursor:pointer;display:block;font-size:12.5px;color:var(--muted)">+ Datei</label><input type="file" id="wf-${esc(w.id)}" data-wfile="${esc(w.id)}" accept="application/pdf,image/*" multiple hidden>` : ""}</td>
+      <td class="r" style="white-space:nowrap">${S.confirm === "w-" + w.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="wdel" data-id="${esc(w.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="w-${esc(w.id)}">Löschen</button>`}</td></tr>`).join("")}
+    </tbody></table></div>` : `<p class="muted">Noch keine Einträge.</p>`}
+  </section>
+  <section class="sec"><h2>Inbetriebnahme</h2>
+    <div class="grid"><label class="f"><span>In Betrieb seit</span><input type="date" id="dib-${esc(d.id)}" data-dib="${esc(d.id)}" value="${esc(d.inBetriebSeit)}"></label></div>
+    <p class="muted" style="font-size:13px">Ausgangspunkt für die Fristen, solange noch keine Inspektion bzw. kein Propellerwechsel eingetragen ist.</p></section></div>`;
+  return h;
+}
 function vPerson() {
   const m = S.members.find(x => x.id === S.personId);
   if (!m) return `<div class="sheet empty"><h3>${S.loaded.members ? "Person nicht gefunden" : "Wird geladen …"}</h3><p><a href="#stunden">Zur Stundenübersicht</a></p></div>`;
@@ -1615,15 +1730,19 @@ function vStamm() {
   // Drohnen
   h += `<div class="sheet"><section class="sec"><div class="sec-h"><h2>Drohnen</h2><span class="muted">${S.drones.length}</span></div>
     ${dis ? "" : `<div class="row"><input id="newDrone" placeholder="Bezeichnung, z. B. UAS 1" style="flex:1 1 140px;width:auto"><input id="newDroneT" placeholder="Modell, z. B. DJI Matrice 30T" style="flex:2 1 180px;width:auto"><input id="newDroneK" placeholder="Kennung / Seriennr." class="mono" style="flex:1 1 140px;width:auto"><button class="primary" data-act="adddrone">Hinzufügen</button></div>`}
-    ${S.drones.length ? `<div class="tbl-wrap"><table><thead><tr><th>Bezeichnung</th><th>Modell</th><th>Kennung / Seriennr.</th><th>Standard</th><th>Privat</th><th></th></tr></thead><tbody>
+    ${S.drones.length ? `<div class="tbl-wrap"><table><thead><tr><th>Bezeichnung</th><th>Modell</th><th>Kennung / Seriennr.</th><th>Standard</th><th>Privat</th><th>Wartung</th><th></th></tr></thead><tbody>
     ${S.drones.map(d => `<tr><td><input id="dn-${esc(d.id)}" data-dr="${esc(d.id)}" data-field="name" value="${esc(d.name)}" ${dis}></td>
       <td><input id="dt-${esc(d.id)}" data-dr="${esc(d.id)}" data-field="typ" value="${esc(d.typ || "")}" ${dis}></td>
       <td><input id="dk-${esc(d.id)}" class="mono" data-dr="${esc(d.id)}" data-field="kennung" value="${esc(d.kennung || "")}" ${dis}></td>
       <td><input type="radio" name="drstd" id="ds-${esc(d.id)}" data-drstd="${esc(d.id)}" ${d.standard ? "checked" : ""} ${dis} aria-label="Standard-Drohne"></td>
       <td><input type="checkbox" id="dp-${esc(d.id)}" data-drpriv="${esc(d.id)}" ${d.privat ? "checked" : ""} ${dis} aria-label="Private Drohne"></td>
+      <td style="white-space:nowrap"><a href="#d-${esc(d.id)}" style="text-decoration:none">${d.privat && !d.ausserBetrieb ? `<span class="chip neutral">Wartungsbuch</span>` : wChip(d)}</a></td>
       <td class="r" style="white-space:nowrap">${dis ? "" : (usedD.has(d.id) ? `<button class="sm ghost" data-act="toggledrone" data-id="${esc(d.id)}">${d.aktiv === false ? "Aktivieren" : "Außer Dienst"}</button>` : (S.confirm === "d-" + d.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="deldrone" data-id="${esc(d.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="d-${esc(d.id)}">Löschen</button>`))}</td></tr>`).join("")}
-    </tbody></table></div><p class="muted" style="font-size:13px">Die <b>Standard</b>-Drohne (z. B. die Drohne der FFW VS) ist in jedem neuen Bericht vorausgewählt. <b>Private</b> Drohnen stehen in der Auswahl unten und müssen bewusst gewählt werden; im Einsatz erscheint ein Hinweis.</p>` : `<p class="muted">Noch keine Drohnen angelegt.</p>`}
-  </section></div>`;
+    </tbody></table></div><p class="muted" style="font-size:13px">Die <b>Standard</b>-Drohne (z. B. die Drohne der FFW VS) ist in jedem neuen Bericht vorausgewählt. <b>Private</b> Drohnen stehen in der Auswahl unten und müssen bewusst gewählt werden; im Einsatz erscheint ein Hinweis. Über <b>Wartung</b> öffnest du Wartungsbuch, Fristen und „außer Betrieb“.</p>` : `<p class="muted">Noch keine Drohnen angelegt.</p>`}
+  </section>
+  <section class="sec"><h2>Wartungsfristen</h2>
+    <div class="rule-in">Inspektion alle <input id="cfg-wi" data-wcfg="inspMon" inputmode="numeric" class="mono" value="${esc(wRule().inspMon)}" ${dis}> Monate. Propeller, Gimbal-Dämpfer und Verschleißteile nach <input id="cfg-wp" data-wcfg="propStd" inputmode="numeric" class="mono" value="${esc(wRule().propStd)}" ${dis}> Flugstunden oder spätestens nach <input id="cfg-wm" data-wcfg="propMon" inputmode="numeric" class="mono" value="${esc(wRule().propMon)}" ${dis}> Monaten.</div>
+    <p class="muted" style="font-size:13px">Vorbelegt nach den Angaben für die DJI Matrice 4 (Verschleißteile: 12 Monate oder 200 h). Bitte mit eurem Wartungshandbuch abgleichen. Gelb erscheint 30 Tage vorher bzw. ab 90 % der Stunden. Private Drohnen bekommen keine Erinnerungen.</p></section></div>`;
   h += vUsers();
   h += `<p class="muted" style="font-size:12px">Drohne-VS-Protokoll · Version ${APP_VERSION}</p>`;
   return h;
@@ -1642,6 +1761,13 @@ async function uploadNachweis(memberId, files) {
   const fd = new FormData(); [...files].forEach(fl => fd.append("nachweise+", fl, fl.name));
   toast("Wird hochgeladen …");
   try { const rec = await pb.collection("mitgliederdetails").update(id, fd); Store.put("mitgliederdetails", rec); toast("Bescheinigung gespeichert"); }
+  catch (e) { toast("Hochladen fehlgeschlagen" + (e && e.status === 400 ? " – nur PDF oder Bild bis 15 MB" : "") + "."); }
+}
+async function uploadWart(id, files) {
+  if (!S.online) { toast("Dateien lassen sich nur mit Internetverbindung hochladen."); return; }
+  const fd = new FormData(); [...files].forEach(fl => fd.append("dateien+", fl, fl.name));
+  toast("Wird hochgeladen …");
+  try { await Store.flush(); const rec = await pb.collection("wartung").update(id, fd); Store.put("wartung", rec); toast("Datei gespeichert"); }
   catch (e) { toast("Hochladen fehlgeschlagen" + (e && e.status === 400 ? " – nur PDF oder Bild bis 15 MB" : "") + "."); }
 }
 function nachweisURL(m, name) { const r = m.detId && Store.raw("mitgliederdetails", m.detId); return r && fileTok.t ? pb.files.getURL(r, name, { token: fileTok.t }) : ""; }
@@ -1734,6 +1860,7 @@ document.addEventListener("input", e => {
   const t = e.target;
   if (t.dataset.b && S.draft) { setPath(S.draft, t.dataset.b, t.value); markDirty(); updateDerived(); return; }
   if (t.dataset.filter === "q") { S.filter.q = t.value; render(); }
+  if (["w-datum", "w-art", "w-bem"].includes(t.id)) S.wForm = { datum: $("#w-datum").value, art: $("#w-art").value, bem: $("#w-bem").value };
 });
 document.addEventListener("change", e => {
   const t = e.target;
@@ -1787,6 +1914,11 @@ document.addEventListener("change", e => {
     if (fld === "name" && !v) { toast("Name darf nicht leer sein."); render(); return; }
     (DET_FIELD[fld] ? saveDetail(t.dataset.mem, { [DET_FIELD[fld]]: v }) : Store.upsert("members", t.dataset.mem, { [fld]: v })).then(() => toast("Gespeichert")); return;
   }
+  if (t.dataset.wcfg && isAdmin()) { const n = parseInt(t.value, 10); if (!(n > 0)) { toast("Bitte eine Zahl größer 0 eingeben."); render(); return; }
+    Store.upsert("config", S.config.id || pbId(), { wartung: { ...wRule(), [t.dataset.wcfg]: n } }).then(() => toast("Gespeichert")); return; }
+  if (t.dataset.dib && isAdmin()) { Store.upsert("drones", t.dataset.dib, { inBetriebSeit: t.value }).then(() => toast("Gespeichert")); return; }
+  if (t.dataset.wfile && t.files && t.files.length && isAdmin()) { const fs = [...t.files]; t.value = ""; uploadWart(t.dataset.wfile, fs); return; }
+  if (["w-datum", "w-art", "w-bem"].includes(t.id)) { S.wForm = { datum: $("#w-datum").value, art: $("#w-art").value, bem: $("#w-bem").value }; return; }
   if (t.dataset.nachweis && t.files && t.files.length && isAdmin()) { const fs = [...t.files]; t.value = ""; uploadNachweis(t.dataset.nachweis, fs); return; }
   if (t.dataset.drstd && isAdmin()) { S.drones.forEach(x => { if (x.standard && x.id !== t.dataset.drstd) Store.upsert("drones", x.id, { standard: false }); }); Store.upsert("drones", t.dataset.drstd, { standard: true, privat: false }).then(() => toast("Standard-Drohne gesetzt")); return; }
   if (t.dataset.drpriv && isAdmin()) { Store.upsert("drones", t.dataset.drpriv, t.checked ? { privat: true, standard: false } : { privat: false }).then(() => toast("Gespeichert")); return; }
@@ -1795,12 +1927,21 @@ document.addEventListener("change", e => {
 document.addEventListener("keydown", e => {
   if (e.key === "Enter" && (e.target.id === "newMember" || e.target.id === "newMemberQ")) { e.preventDefault(); act("addmember", e.target); }
   if (e.key === "Enter" && /^newDrone/.test(e.target.id)) { e.preventDefault(); act("adddrone", e.target); }
+  if (e.key === "Enter" && e.target.id === "dlockText") { e.preventDefault(); act("ddolock", document.querySelector("[data-act=ddolock]")); }
+  if (e.key === "Enter" && e.target.id === "dunlockText") { e.preventDefault(); act("ddounlock", document.querySelector("[data-act=ddounlock]")); }
   if (e.key === "Enter" && e.target.id === "lockText") { e.preventDefault(); act("dolock", document.querySelector("[data-act=dolock]")); }
   if (e.key === "Enter" && e.target.id === "unlockText") { e.preventDefault(); act("dounlock", document.querySelector("[data-act=dounlock]")); }
   if (e.key === "Enter" && e.target.id === "auftragText") { e.preventDefault(); act("doauftrag", e.target); }
   if (e.key === "Enter" && e.target.id === "logText") { e.preventDefault(); act("logadd", e.target); }
 });
 document.addEventListener("click", e => { const b = e.target.closest("[data-act]"); if (b) act(b.dataset.act, b); });
+// Wartungsdatei öffnen (ebenfalls mit frischem Zugriffsschlüssel)
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[data-wopen]"); if (!a) return;
+  e.preventDefault(); const w = window.open("", "_blank");
+  fileTok = { t: "", at: 0, p: null };
+  fileToken().then(() => { const x = S.wartung.find(y => y.id === a.dataset.wopen); const u = x && wartURL(x, a.dataset.n); if (u && w) w.location = u; else if (u) location.href = u; else { if (w) w.close(); toast("Datei nicht erreichbar."); } }, () => { if (w) w.close(); toast("Keine Verbindung zum Server."); });
+});
 // Bescheinigung öffnen: immer mit frischem Zugriffsschlüssel (der gilt nur wenige Minuten)
 document.addEventListener("click", e => {
   const a = e.target.closest("a[data-nwopen]"); if (!a) return;
@@ -1876,6 +2017,7 @@ function act(a, b) {
     case "delflight": d.flights.splice(+b.dataset.i, 1); markDirty(); render(); break;
     case "logstart": {
       const prev = d.flights[d.flights.length - 1];
+      { const dx = S.drones.find(x => x.id === ((prev && prev.droneId) || d.droneId)); if (dx && dx.ausserBetrieb) { toast(`${dx.name} ist außer Betrieb und darf nicht fliegen. Bitte unter „Flug & Crew“ eine andere Drohne wählen.`); return; } }
       const crew0 = d.nextCrew || (prev ? prev.crew || [] : []);
       let pilot = (crew0.find(c => c.role === "pilot" && c.memberId) || {}).memberId || "";
       if (!b.dataset.pick) { S.askPilot = { pre: pilot }; render(); const el = $("#startPilot"); if (el) el.focus(); return; }
@@ -1969,6 +2111,28 @@ function act(a, b) {
       S.sperren.filter(x => x.member === id && !x.bis).forEach(x => Store.upsert("pilotsperren", x.id, { bis: today(), aufhebung: t }));
       Store.upsert("members", id, { pilotGesperrt: false }).then(() => toast(`Sperre für ${memberName(id)} aufgehoben.`)); break;
     }
+    case "dlockform": S.lockForm = "dlk-" + b.dataset.id; render(); { const el = $("#dlockText"); if (el) el.focus(); } break;
+    case "dunlockform": S.lockForm = "dun-" + b.dataset.id; render(); { const el = $("#dunlockText"); if (el) el.focus(); } break;
+    case "ddolock": {
+      if (!isAdmin()) return; const id = b.dataset.id, g = (($("#dlockText") || {}).value || "").trim(); S.lockForm = null;
+      Store.create("wartung", { drone: id, datum: today(), art: "sperre", bemerkung: g });
+      Store.upsert("drones", id, { ausserBetrieb: true, ausserBetriebGrund: g }).then(() => toast("Drohne außer Betrieb gesetzt.")); break;
+    }
+    case "ddounlock": {
+      if (!isAdmin()) return; const id = b.dataset.id, g = (($("#dunlockText") || {}).value || "").trim(); S.lockForm = null;
+      Store.create("wartung", { drone: id, datum: today(), art: "freigabe", bemerkung: g });
+      Store.upsert("drones", id, { ausserBetrieb: false, ausserBetriebGrund: "" }).then(() => toast("Drohne wieder in Betrieb.")); break;
+    }
+    case "wadd": {
+      if (!isAdmin()) return; const id = b.dataset.id, datum = $("#w-datum").value, art = $("#w-art").value, bem = $("#w-bem").value.trim(), fi = $("#w-file");
+      if (!datum) { toast("Bitte ein Datum wählen."); return; }
+      const files = fi && fi.files ? [...fi.files] : [];
+      if (files.length && !S.online) { toast("Dateien lassen sich nur mit Internetverbindung hochladen."); return; }
+      S.wForm = null;
+      Store.create("wartung", { drone: id, datum, art, bemerkung: bem }).then(wid => { toast("Eintrag gespeichert"); if (files.length) uploadWart(wid, files); });
+      break;
+    }
+    case "wdel": S.confirm = null; Store.del("wartung", b.dataset.id).then(() => toast("Eintrag gelöscht")); break;
     case "fotozoom": openZoom(b.dataset.id, !!b.dataset.local); break;
     case "zoomclose": $("#zoom").hidden = true; $("#zoom img").removeAttribute("src"); break;
     case "fotodel": S.confirm = null; Store.del("fotos", b.dataset.id).then(() => toast("Foto gelöscht")); break;
