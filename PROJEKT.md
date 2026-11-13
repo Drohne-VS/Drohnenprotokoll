@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 13.11.2026 · App-Version 2.1 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
+Stand: 13.11.2026 · App-Version 2.1.1 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
 
 ---
 
@@ -130,6 +130,10 @@ Bei Start/Pilotenwechsel stehen „verfügbar vor Ort“ zuerst in der Auswahl.
 
 **Abschließen** nur, wenn jeder Abschnitt einen Piloten hat **und** der Flug beendet ist
 (nicht in der Luft, kein offener Akkuwechsel).
+
+**Kalender/Auswahllisten (2.1.1):** Solange ein Eingabefeld offen ist, wird die Ansicht wegen neuer
+Daten nicht neu aufgebaut (sonst schloss sich der Kalender bzw. stürzte die App ab); das passiert erst
+nach Verlassen des Feldes. Startet die installierte App neu, öffnet sie die letzte Ansicht (bis 30 Min.).
 
 **Speichern:** automatisch 2–3 s nach jeder Eingabe, beim Verlassen und wenn die App in den
 Hintergrund geht; Protokoll/Abhaken/Fotos sofort.

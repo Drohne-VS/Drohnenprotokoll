@@ -709,7 +709,7 @@ const Store = (() => {
     S.fotos = recs("fotos").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit || "", quelle: r.quelle || "", beschreibung: r.beschreibung || "", created: r.created || "" }));
     S.pending = outbox.length;
   }
-  function changed(col) { toState(); header(); if (col === "missions" || col === "protokoll" || col === "fotos") onMissions(); else softRender(); }
+  function changed(col) { toState(); header(); dataRender(col === "missions" || col === "protokoll" || col === "fotos"); }
   async function loadCol(c) {
     const items = await pb.collection(c).getFullList({ batch: 500 });
     cache[c] = {}; items.forEach(r => cache[c][r.id] = r);
@@ -720,7 +720,7 @@ const Store = (() => {
       for (const c of COLS) await loadCol(c);
       setOnline(true);
       COLS.forEach(c => S.loaded[c] = true);
-      toState(); header(); if (S.view === "edit") onMissions(); else render();
+      toState(); header(); dataRender(true);
       subscribe();
     } catch (e) {
       if (e && (e.status === 401 || e.status === 403)) { logout(true); return; }
@@ -826,7 +826,7 @@ function downloadFile(filename, data) {
 }
 
 /* ---------- Fotos (V2.0) ---------- */
-const APP_VERSION = "2.1";
+const APP_VERSION = "2.1.1";
 const QUELLE = { einsatzstelle: "Einsatzstelle", drohne: "Drohne" };
 const FotoQ = (() => {
   let dbp = null, flushing = false, items = [];
@@ -944,6 +944,8 @@ async function boot() {
 }
 function startSession() {
   S.auth = "ok"; S.authErr = "";
+  // Wurde die App vom Gerät neu gestartet (z. B. nach einem Absturz), zur letzten Ansicht zurück
+  if (!location.hash) { const l = LS.get("fb.lastView", null); if (l && l.h && Date.now() - l.t < 30 * 60e3 && !/^neu-/.test(l.h)) { ignoreHash = true; location.hash = l.h; } }
   Store.init(); route();
   pb.collection("users").authRefresh().then(() => header(), e => { if (e && (e.status === 401 || e.status === 403 || e.status === 404)) logout(true); });
 }
@@ -1007,6 +1009,19 @@ function onMissions() {
   if (S.view === "load") { route(); return; }
   render();
 }
+// Neu zeichnen wegen neuer Daten (Server, Speichern, Rückkehr in die App). Solange ein Eingabefeld
+// offen ist – v. a. Kalender oder Auswahlliste auf Tablet/Handy –, wird damit gewartet: Ein Neuaufbau
+// unter einem geöffneten Kalender schließt ihn und kann manche Browser zum Absturz bringen.
+let deferredRender = 0;
+function fieldBusy() { const a = document.activeElement; return !!a && (a.tagName === "SELECT" || a.tagName === "TEXTAREA" || (a.tagName === "INPUT" && !/^(checkbox|radio|button|submit|file)$/.test(a.type))) && view.contains(a); }
+function dataRender(missions) {
+  if (fieldBusy()) { deferredRender = Math.max(deferredRender, missions ? 2 : 1); return; }
+  if (missions) onMissions(); else softRender();
+}
+document.addEventListener("focusout", () => setTimeout(() => {
+  if (!deferredRender || fieldBusy()) return;
+  const m = deferredRender === 2; deferredRender = 0; dataRender(m);
+}, 250));
 function softRender() { if (S.view !== "edit") render(); else if (S.draft && !S.dirty) render(); }
 function header() {
   const authed = S.auth === "ok";
@@ -1043,6 +1058,7 @@ window.addEventListener("hashchange", () => {
 });
 function route() {
   let h = location.hash.slice(1);
+  LS.set("fb.lastView", { h, t: Date.now() });
   if (S.auth !== "ok") { render(); return; }
   if (!isAdmin() && (h === "stunden" || h === "stammdaten" || h.startsWith("p-") || h.startsWith("d-"))) { h = "einsaetze"; ignoreHash = true; location.hash = h; }
   S.confirm = null;
@@ -1420,7 +1436,7 @@ let autoT = null;
 function scheduleAutosave(ms) { clearTimeout(autoT); autoT = setTimeout(() => { if (S.dirty && S.draft && !ro()) saveDraft(undefined, true); }, ms || 2500); }
 function markDirty() { if (!S.dirty) { S.dirty = true; actions(); } scheduleAutosave(); }
 function flushAutosave() { clearTimeout(autoT); if (S.dirty && S.draft && !ro()) saveDraft(undefined, true); }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushAutosave(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") { flushAutosave(); if (S.auth === "ok") LS.set("fb.lastView", { h: location.hash.slice(1), t: Date.now() }); } });
 window.addEventListener("pagehide", flushAutosave);
 
 /* ----- Lageskizze ----- */
