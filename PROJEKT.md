@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 13.11.2026 · App-Version 2.1.3 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
+Stand: 13.11.2026 · App-Version 2.1.4 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
 
 ---
 

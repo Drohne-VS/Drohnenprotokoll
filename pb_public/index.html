@@ -832,7 +832,7 @@ function downloadFile(filename, data) {
 }
 
 /* ---------- Fotos (V2.0) ---------- */
-const APP_VERSION = "2.1.3";
+const APP_VERSION = "2.1.4";
 const QUELLE = { einsatzstelle: "Einsatzstelle", drohne: "Drohne" };
 const FotoQ = (() => {
   let dbp = null, flushing = false, items = [];
@@ -916,7 +916,7 @@ function vFotos() {
       <label class="btn fotobtn" for="fotoCam">Einsatzstellenfoto aufnehmen</label><input type="file" id="fotoCam" accept="image/*" capture="environment" data-quelle="einsatzstelle" hidden>
       <label class="btn fotobtn" for="fotoPick">Drohnen-Screenshot / Bild wählen</label><input type="file" id="fotoPick" accept="image/*" multiple data-quelle="drohne" hidden>
     </div>
-    <p class="muted" style="font-size:13px">Screenshots vom Steuer-Tablet: dort in der Galerie auswählen (auch mehrere). Die Uhrzeit wird aus der Bilddatei übernommen, wenn sie von heute ist. Ohne Netz bleiben die Bilder auf dem Gerät und werden später übertragen.</p>`;
+`;
   if (!all.length) return h + `<p class="muted">Noch keine Bilder.</p></section>`;
   h += `<div class="fotos">${all.map(f => {
     const src = f.local ? f.url : fotoURL(f, "400x0");
@@ -1275,7 +1275,7 @@ function vProtokoll() {
     q += ["Lagemeldung an EvD/FüGr", "Funkverbindung gestört"].map(t => `<button class="sm" data-act="logquick" data-t="${esc(t)}">${esc(t)}</button>`).join("");
   }
   return `<section class="sec"><div class="sec-h"><h2><span class="k">02</span>Einsatzprotokoll</h2><span class="muted" style="font-size:13px">${log.length} Einträge</span></div>
-    <p class="muted" style="font-size:13.5px">Hier steht nur, was die Drohne betrifft: Starts, Landungen, Pilotenwechsel, Aufträge und Feststellungen. Start und Landung tragen die Uhrzeit automatisch in den Flug ein. Jeder Eintrag wird sofort gespeichert, auch ohne Netz. Wie im Funkbuch wird nichts gelöscht: Fehler mit „Korrigieren“ als neuen Eintrag berichtigen.</p>
+
     ${last && !dis ? `<div class="crewline"><span class="muted">${{ luft: "In der Luft", pause: "Akkuwechsel – weiter mit", ende: "Beendet – zuletzt", boden: "" }[st]}:</span> ${curCrew(d).filter(c => c.memberId).map(c => `<b>${esc(ROLES_S[c.role])}</b> ${esc(memberName(c.memberId))}`).join(" · ") || `<span class="muted">Crew noch nicht eingetragen</span>`} <button class="ghost sm" data-act="tocrew" style="padding:2px 6px">Crew ändern</button></div>` : ""}
     ${S.askAuftrag && !dis ? `<div class="askpil auftrag"><div style="display:grid;gap:8px;flex:1 1 100%">
         <span class="wx-l">Neuer Auftrag – Bildmodus</span>
@@ -1739,9 +1739,9 @@ function vStamm() {
     <p class="muted" style="font-size:13px">Name und Logo erscheinen im Kopf der App und auf jedem PDF-Bericht.</p></section>
   <section class="sec"><h2>Routine-Regel</h2>
     <div class="rule-in">Grün („In Übung“) bei mindestens <input id="cfg-m30" data-cfg="routineMin30" inputmode="numeric" class="mono" value="${esc(rule().m30)}" ${dis}> Minuten Flugzeit als Pilot in den letzten 30 Tagen <strong>und</strong> <input id="cfg-m90" data-cfg="routineMin90" inputmode="numeric" class="mono" value="${esc(rule().m90)}" ${dis}> Minuten in den letzten 90 Tagen.</div>
-    <p class="muted" style="font-size:13px">Einsatz- und Übungsflüge zählen zusammen. Gelb: im 90-Tage-Zeitraum geflogen, aber zu wenig. Rot: in 90 Tagen nicht als Pilot geflogen. Eine interne Orientierung für die Übungsplanung – maßgeblich bleiben eure Dienstvorschriften.</p></section>
+    <p class="muted" style="font-size:13px">Einsatz- und Übungsflüge zählen zusammen. Gelb: im 90-Tage-Zeitraum geflogen, aber zu wenig. Rot: in 90 Tagen nicht als Pilot geflogen.</p></section>
   <section class="sec"><h2>Meldestellen</h2>
-    <p class="muted" style="font-size:13px">Diese Stellen erscheinen im Bericht oben bei den Einsatzdaten zum Abhaken; die Uhrzeit wird mitgespeichert. Die Nummer lässt sich auf Handy und Tablet direkt antippen.</p>
+
     <div class="tbl-wrap"><table><thead><tr><th>Bezeichnung</th><th>Telefon</th><th></th></tr></thead><tbody>
     ${meldestellen().map((s, i) => `<tr><td><input id="ms-n-${i}" data-melde="${i}" data-field="name" value="${esc(s.name)}" ${dis}></td><td><input id="ms-t-${i}" class="mono" data-melde="${i}" data-field="tel" value="${esc(s.tel || "")}" placeholder="Nummer eintragen" ${dis}></td>
       <td class="r">${dis ? "" : S.confirm === "ms-" + i ? `<span class="confirm">Entfernen? <button class="sm danger" data-act="delmelde" data-i="${i}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="ms-${i}">Entfernen</button>`}</td></tr>`).join("")}
@@ -1761,11 +1761,10 @@ function vStamm() {
       <td><input type="checkbox" id="dp-${esc(d.id)}" data-drpriv="${esc(d.id)}" ${d.privat ? "checked" : ""} ${dis} aria-label="Private Drohne"></td>
       <td style="white-space:nowrap"><a href="#d-${esc(d.id)}" style="text-decoration:none">${d.privat && !d.ausserBetrieb ? `<span class="chip neutral">Wartungsbuch</span>` : wChip(d)}</a></td>
       <td class="r" style="white-space:nowrap">${dis ? "" : (usedD.has(d.id) ? `<button class="sm ghost" data-act="toggledrone" data-id="${esc(d.id)}">${d.aktiv === false ? "Aktivieren" : "Außer Dienst"}</button>` : (S.confirm === "d-" + d.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="deldrone" data-id="${esc(d.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="d-${esc(d.id)}">Löschen</button>`))}</td></tr>`).join("")}
-    </tbody></table></div><p class="muted" style="font-size:13px">Die <b>Standard</b>-Drohne (z. B. die Drohne der FFW VS) ist in jedem neuen Bericht vorausgewählt. <b>Private</b> Drohnen stehen in der Auswahl unten und müssen bewusst gewählt werden; im Einsatz erscheint ein Hinweis. Über <b>Wartung</b> öffnest du Wartungsbuch, Fristen und „außer Betrieb“.</p>` : `<p class="muted">Noch keine Drohnen angelegt.</p>`}
+    </tbody></table></div><p class="muted" style="font-size:13px">Die <b>Standard</b>-Drohne ist in jedem neuen Bericht vorausgewählt. <b>Private</b> Drohnen stehen in der Auswahl unten und müssen bewusst gewählt werden; im Einsatz erscheint ein Hinweis.</p>` : `<p class="muted">Noch keine Drohnen angelegt.</p>`}
   </section>
   <section class="sec"><h2>Wartungsfristen</h2>
-    <div class="rule-in">Inspektion alle <input id="cfg-wi" data-wcfg="inspMon" inputmode="numeric" class="mono" value="${esc(wRule().inspMon)}" ${dis}> Monate. Propeller, Gimbal-Dämpfer und Verschleißteile nach <input id="cfg-wp" data-wcfg="propStd" inputmode="numeric" class="mono" value="${esc(wRule().propStd)}" ${dis}> Flugstunden oder spätestens nach <input id="cfg-wm" data-wcfg="propMon" inputmode="numeric" class="mono" value="${esc(wRule().propMon)}" ${dis}> Monaten.</div>
-    <p class="muted" style="font-size:13px">Vorbelegt nach den Angaben für die DJI Matrice 4 (Verschleißteile: 12 Monate oder 200 h). Bitte mit eurem Wartungshandbuch abgleichen. Gelb erscheint 30 Tage vorher bzw. ab 90 % der Stunden. Private Drohnen bekommen keine Erinnerungen.</p></section></div>`;
+    <div class="rule-in">Inspektion alle <input id="cfg-wi" data-wcfg="inspMon" inputmode="numeric" class="mono" value="${esc(wRule().inspMon)}" ${dis}> Monate. Propeller, Gimbal-Dämpfer und Verschleißteile nach <input id="cfg-wp" data-wcfg="propStd" inputmode="numeric" class="mono" value="${esc(wRule().propStd)}" ${dis}> Flugstunden oder spätestens nach <input id="cfg-wm" data-wcfg="propMon" inputmode="numeric" class="mono" value="${esc(wRule().propMon)}" ${dis}> Monaten.</div></section></div>`;
   h += vUsers();
   h += `<p class="muted" style="font-size:12px">Drohne-VS-Protokoll · Version ${APP_VERSION}</p>`;
   return h;
@@ -1829,7 +1828,7 @@ function vMitglieder(dis, used) {
     return r + `</div>`; }).join("")}</div>
   <p class="muted" style="font-size:13px">Antippen öffnet die Details. Änderungen werden sofort gespeichert. Die Auswahllisten (Abteilungen, Dienstgrade, Ausbildungen) lassen sich unten anpassen.</p></section></div>`;
   // Auswahllisten
-  h += `<div class="sheet"><section class="sec"><h2>Auswahllisten</h2><p class="muted" style="font-size:13px">Ein Eintrag pro Zeile. Die Abteilungen entsprechen der Feuerwehrsatzung der Stadt; Dienstgrade und Ausbildungen bitte an eure Praxis anpassen.</p>
+  h += `<div class="sheet"><section class="sec"><h2>Auswahllisten</h2>
     <div class="grid">${[["abteilungen", "Abteilungen"], ["dienstgrade", "Dienstgrade"], ["ausbildungen", "Ausbildungen"]].map(([k, l]) => `<label class="f"><span>${l}</span><textarea id="li-${k}" data-liste="${k}" rows="8" ${dis}>${esc(listen(k).join("\n"))}</textarea></label>`).join("")}</div>
   </section></div>`;
   return h;
