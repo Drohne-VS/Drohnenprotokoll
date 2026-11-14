@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 13.11.2026 · App-Version 2.5 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
+Stand: 13.11.2026 · App-Version 2.6 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
 
 ---
 
@@ -87,12 +87,13 @@ optional einsatzleiter, auftrag, positions, luftraum.
 
 | | Admin | Einsatz-Tablet |
 |---|---|---|
-| Berichte anlegen, Protokoll, Fotos, PDF, abschließen | ✅ | ✅ |
+| Berichte anlegen, Protokoll (auch ändern), Fotos, abschließen | ✅ | ✅ |
+| PDF-Berichte erstellen, Endkontrolle | ✅ | ❌ |
 | Abgeschlossene Berichte sehen/korrigieren/wieder öffnen | ✅ (mit Änderungsvermerk) | ❌ (verschwinden vom Tablet) |
 | Protokolleinträge, Fotos, Berichte löschen | ✅ | ❌ |
 | Stammdaten, Stunden, Routine, Zugänge | ✅ | ❌ |
 
-Protokoll wie ein **Funkbuch**: Das Tablet löscht nichts, Fehler werden mit „Korrigieren“ als neuer Eintrag berichtigt.
+Protokolleinträge lassen sich direkt **ändern** (V2.6; Tablet solange der Bericht offen ist). Der Server bewahrt den Ursprungstext (`original`, `geaendertAm`); Anzeige und PDF zeigen „(geändert)“. Löschen nur Admin.
 
 ---
 
@@ -110,7 +111,7 @@ Protokoll wie ein **Funkbuch**: Das Tablet löscht nichts, Fehler werden mit „
    „▶ Flug starten“ (fragt Pilot) → in der Luft: „Akkuwechsel (Landung)“, „⇄ Pilotenwechsel“,
    „■ Flug beenden“ → nach Akkuwechsel: „▶ Weiter mit neuem Akku“. Außerdem „Auftrag erhalten“
    (Eingabefeld + Bildmodus **Normalbild / Wärmebild / Splitscreen**), „Lagemeldung an EvD/FüGr“,
-   „Funkverbindung gestört“, Freitext mit Uhrzeit. „Lagemeldung an EvD/FüGr“ öffnet ein Eingabefeld (V2.4), Eintrag mit Kennung „Lage“.
+   „Funkverbindung gestört“, Freitext mit Uhrzeit. „Lagemeldung an EvD/FüGr“ übernimmt den Text aus der Eingabezeile (Pflicht), Eintrag mit Kennung „Lage“.
 3. **Fotos & Screenshots** (V2.0): Einsatzstellenfoto (Kamera) und Drohnen-Screenshots (Galerie,
    mehrere), Uhrzeit aus Datei, Quelle, Beschreibung; verkleinert auf max. 2560 px; geschützt; im PDF.
 4. **Flug & Crew**: Es gibt **einen durchgehenden Flug**; intern Abschnitte („flights“), geteilt
@@ -143,10 +144,13 @@ Bei Start/Pilotenwechsel stehen „verfügbar vor Ort“ zuerst in der Auswahl.
 
 **Abschließen** nur, wenn jeder Abschnitt einen Piloten hat **und** der Flug beendet ist
 (nicht in der Luft, kein offener Akkuwechsel).
-Beim Abschließen Pflichtauswahl **„Kontrolliert / abgeschlossen von“** (V2.5) – nur Mitglieder mit
-Haken „Darf Berichte abschließen / kontrollieren“ (`members.darfAbschliessen`, Admin setzt ihn in den
-Mitglieder-Details). Gespeichert in `data.abschluss {memberId, name, zeit}`, steht im Bericht und im PDF;
-„Wieder öffnen“ löscht ihn. Die Unterschriftszeilen im PDF sind entfallen.
+**Abschluss & Endkontrolle (V2.6):** Abschließen darf jeder (Tablet oder Admin); gespeichert wird
+`data.abschluss {name, zeit}` (angemeldeter Zugang). Danach „Wartet auf Kontrolle“; der Admin bestätigt
+– auch Tage später – die **Endkontrolle** (`data.kontrolle {name, zeit}`) → „Kontrolliert“. Offene
+Endkontrollen stehen für den Admin oben auf der Startseite. „Wieder öffnen“ löscht beides.
+**PDF-Berichte nur für den Admin**; PDF-Kopf „ENTWURF“ bzw. „NICHT KONTROLLIERT“, am Ende Abschnitt
+„Abschluss und Kontrolle“. Keine Unterschriftszeilen. (Die V2.5-Auswahl „kontrolliert von“ mit
+Mitglieder-Berechtigung `darfAbschliessen` wurde wieder entfernt; das Feld bleibt ungenutzt in der DB.)
 
 **Kalender/Auswahllisten (2.1.1):** Solange ein Eingabefeld offen ist, wird die Ansicht wegen neuer
 Daten nicht neu aufgebaut (sonst schloss sich der Kalender bzw. stürzte die App ab); das passiert erst

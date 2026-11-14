@@ -222,6 +222,8 @@ tfoot td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: 0;
 .log { display: grid; gap: 0; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .log-row { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); align-items: baseline; background: var(--surface); }
 .log-row:last-child { border-bottom: 0; }
+.log-row.edit { grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; background: var(--uebung-soft); }
+@media (max-width: 520px) { .log-row.edit { grid-template-columns: 96px minmax(0, 1fr); } .log-row.edit .row { grid-column: 1 / -1; } }
 .log-row .tm { font-family: var(--f-mono); font-size: 14px; font-weight: 500; }
 .log-row .tx { overflow-wrap: anywhere; }
 .log-row .tx .tag { font: 600 11.5px/1 var(--f-display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-right: 6px; }
@@ -719,7 +721,7 @@ const Store = (() => {
     const cf = recs("config")[0];
     S.config = cf ? { id: cf.id, einheit: cf.einheit || "", gruppe: cf.gruppe || "", routineMin30: cf.routineMin30 || "", routineMin90: cf.routineMin90 || "", meldestellen: Array.isArray(cf.meldestellen) ? cf.meldestellen : null, listen: cf.listen && typeof cf.listen === "object" ? cf.listen : null, wartung: cf.wartung && typeof cf.wartung === "object" ? cf.wartung : null,
       logoUrl: cf.logo && cf.collectionId ? pb.files.getURL(cf, cf.logo) : "" } : {};
-    S.protokoll = recs("protokoll").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit, text: r.text, tag: r.tag || "", created: r.created || "", _pending: !!r._pending }))
+    S.protokoll = recs("protokoll").map(r => ({ id: r.id, mission: r.mission, zeit: r.zeit, text: r.text, tag: r.tag || "", original: r.original || "", geaendert: !!(r.geaendertAm || r.original), created: r.created || "", _pending: !!r._pending }))
       .sort((a, b) => (tmin(a.zeit) ?? 0) - (tmin(b.zeit) ?? 0) || String(a.created).localeCompare(String(b.created)));
     S.wartung = recs("wartung").map(r => ({ id: r.id, drone: r.drone, datum: r.datum || "", art: r.art || "", propeller: !!r.propeller || r.art === "propeller", bemerkung: r.bemerkung || "", dateien: Array.isArray(r.dateien) ? r.dateien : [], created: r.created || "", _pending: !!r._pending }))
       .sort((a, b) => String(b.datum + b.created).localeCompare(String(a.datum + a.created)));
@@ -843,7 +845,7 @@ function downloadFile(filename, data) {
 }
 
 /* ---------- Fotos (V2.0) ---------- */
-const APP_VERSION = "2.5";
+const APP_VERSION = "2.6";
 const QUELLE = { einsatzstelle: "Einsatzstelle", drohne: "Drohne" };
 const FotoQ = (() => {
   let dbp = null, flushing = false, items = [];
@@ -1098,7 +1100,7 @@ function route() {
   else { S.view = "einsaetze"; S.draft = null; S.dirty = false; }
   render(); window.scrollTo(0, 0);
 }
-function loadDraft(m) { if (!S.draft || S.draft.id !== m.id) { S.extraOpen = null; S.askPilot = null; S.askSwap = false; S.askAuftrag = null; S.askLage = null; } S.draft = clone(m); S.dirty = false; S.baseStamp = m.updatedAt || null; S.remoteChanged = false; S.pendingHash = null; }
+function loadDraft(m) { if (!S.draft || S.draft.id !== m.id) { S.extraOpen = null; S.askPilot = null; S.askSwap = false; S.askAuftrag = null; S.logEdit = null; } S.draft = clone(m); S.dirty = false; S.baseStamp = m.updatedAt || null; S.remoteChanged = false; S.pendingHash = null; }
 function newDraft(typ, hash) {
   const y = today().slice(0, 4);
   const n = S.missions.filter(m => m.typ === typ && (m.datum || "").startsWith(y)).length + 1;
@@ -1150,6 +1152,8 @@ function vList() {
   if (needsStamm && isAdmin()) h += `<div class="banner info">Lege zuerst unter <a href="#stammdaten">Stammdaten</a> eure Mitglieder und Drohnen an – dann kannst du sie in Flügen als Pilot, Spotter, Techniker oder Verbindung auswählen.</div>`;
   else if (needsStamm) h += `<div class="banner info">Es sind noch keine Mitglieder angelegt. Das erledigt der Admin in den Stammdaten.</div>`;
   if (isAdmin()) {
+    const wait = S.missions.filter(m => mStand(m) === "abgeschlossen");
+    if (wait.length) h += `<div class="banner warn"><div class="wl"><b>Endkontrolle offen</b>${wait.map(m => `<div><a href="#e-${esc(m.id)}">${esc(fmtDate(m.datum))} · ${esc(m.stichwort || m.nr || "Bericht")}</a>${m.abschluss ? ` <span class="muted">– abgeschlossen von ${esc(m.abschluss.name || "")}</span>` : ""}</div>`).join("")}</div></div>`;
     const wl = S.drones.filter(x => x.aktiv !== false && (x.ausserBetrieb || (!x.privat && ["warn", "bad"].includes(wartState(x).worst))));
     if (wl.length) h += `<div class="banner warn"><div class="wl"><b>Wartung</b>${wl.map(x => { const ws = wartState(x); return `<div><a href="#d-${esc(x.id)}">${esc(x.name)}</a>: ${x.ausserBetrieb ? `außer Betrieb${x.abGrund ? " (" + esc(x.abGrund) + ")" : ""}` : ws.items.filter(i => i.st === "warn" || i.st === "bad").map(i => esc(i.text)).join(" · ")}</div>`; }).join("")}</div></div>`;
   }
@@ -1172,7 +1176,7 @@ function vList() {
     const [y, mo, d] = (m.datum || "----").split("-");
     return `<button class="mrow" data-act="open" data-id="${esc(m.id)}">
       <div class="d"><b>${esc(d || "–")}.${esc(mo || "")}.</b>${esc(y || "")}</div>
-      <div class="t"><div class="row" style="gap:6px;margin-bottom:3px"><span class="chip ${m.typ === "uebung" ? "uebung" : "einsatz"}">${typLabel(m.typ)}</span><span class="mono muted">${esc(m.nr || "")}</span>${m.status === "abgeschlossen" ? `<span class="chip ok">Abgeschlossen</span>` : `<span class="chip neutral">Entwurf</span>`}</div>
+      <div class="t"><div class="row" style="gap:6px;margin-bottom:3px"><span class="chip ${m.typ === "uebung" ? "uebung" : "einsatz"}">${typLabel(m.typ)}</span><span class="mono muted">${esc(m.nr || "")}</span>${standChip(m)}</div>
         <strong>${esc(m.stichwort || "(ohne Stichwort)")}</strong>
         <div class="meta"><span>${esc(m.ort || "Ort offen")}</span><span>${missionPeople(m).size} Kräfte</span></div></div>
       <div class="k"><span class="ft">${fmtH(fmn)} h</span><span class="muted" style="font-size:13px">${fl} ${fl === 1 ? "Flug" : "Flüge"}</span></div>
@@ -1207,10 +1211,10 @@ function vEdit() {
   const d = S.draft, U = d.typ === "uebung", dis = ro() ? "disabled" : "";
   const fmn = missionFlightMin(d), md = maxDist(d);
   let h = `<div class="head"><div>
-      <div class="row" style="gap:8px;margin-bottom:6px"><a href="#einsaetze" class="btn" style="padding:6px 10px;font-size:13px">← Übersicht</a><span class="chip ${U ? "uebung" : "einsatz"}">${U ? "Übungsbericht" : "Einsatzbericht"}</span><span class="mono muted">${esc(d.nr || "")}</span>${d.status === "abgeschlossen" ? `<span class="chip ok">Abgeschlossen</span>` : `<span class="chip neutral">Offen</span>`}</div>
+      <div class="row" style="gap:8px;margin-bottom:6px"><a href="#einsaetze" class="btn" style="padding:6px 10px;font-size:13px">← Übersicht</a><span class="chip ${U ? "uebung" : "einsatz"}">${U ? "Übungsbericht" : "Einsatzbericht"}</span><span class="mono muted">${esc(d.nr || "")}</span>${standChip(d)}</div>
       <h1>${esc(d.stichwort || (d._new ? (U ? "Neue Übung" : "Neuer Einsatz") : "(ohne Stichwort)"))}</h1>
       <p class="sub">${fmtDate(d.datum)}${d.ort ? " · " + esc(d.ort) : ""}</p></div></div>`;
-  if (d.status === "abgeschlossen") h += `<div class="banner info">Dieser Bericht ist abgeschlossen${d.abschluss ? ` – kontrolliert von <b>${esc(d.abschluss.name || memberName(d.abschluss.memberId))}</b> am ${esc(new Date(d.abschluss.zeit).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }))} Uhr` : ""}. Als Admin kannst du ihn korrigieren; jede Änderung wird im Bericht vermerkt.</div>`;
+  if (d.status === "abgeschlossen") h += `<div class="banner ${d.kontrolle ? "info" : "warn"}">${d.abschluss ? `Abgeschlossen von <b>${esc(d.abschluss.name || "")}</b> am ${esc(fmtTs(d.abschluss.zeit))} Uhr. ` : "Abgeschlossen. "}${d.kontrolle ? `Endkontrolle durch <b>${esc(d.kontrolle.name || "")}</b> am ${esc(fmtTs(d.kontrolle.zeit))} Uhr.` : "Die Endkontrolle durch den Admin steht noch aus."} Als Admin kannst du ihn korrigieren; jede Änderung wird im Bericht vermerkt.</div>`;
   h += `<div class="stats">
     <div class="stat"><div class="l">${U ? "Übungsdauer" : "Einsatzdauer"}</div><div class="v" id="dv-dauer">${d.ende ? fmtH(dur(d.beginn, d.ende)) : "–"} <small>h</small></div></div>
     <div class="stat"><div class="l">Flüge</div><div class="v">${(d.flights || []).length}</div></div>
@@ -1280,8 +1284,8 @@ function vProtokoll() {
     else if (st === "pause") q += `<button class="go" data-act="resume">▶ Weiter mit neuem Akku · jetzt</button><button class="sm swap" data-act="pilswap">⇄ Pilotenwechsel</button><button class="stop" data-act="logland">■ Flug beenden</button>`;
     else q += `<button class="go" data-act="logstart">▶ Flug wieder aufnehmen</button>`;
     q += `<button class="sm swap" data-act="auftrag">Auftrag erhalten</button>`;
-    q += `<button class="sm" data-act="lage">Lagemeldung an EvD/FüGr</button>`;
-    q += ["Funkverbindung gestört"].map(t => `<button class="sm" data-act="logquick" data-t="${esc(t)}">${esc(t)}</button>`).join("");
+    q += `<button class="sm" data-act="logquick" data-t="Lagemeldung an EvD/FüGr" data-tag="Lage" data-need="1">Lagemeldung an EvD/FüGr</button>`;
+    q += `<button class="sm" data-act="logquick" data-t="Funkverbindung gestört">Funkverbindung gestört</button>`;
   }
   return `<section class="sec"><div class="sec-h"><h2><span class="k">02</span>Einsatzprotokoll</h2><span class="muted" style="font-size:13px">${log.length} Einträge</span></div>
 
@@ -1291,14 +1295,13 @@ function vProtokoll() {
         <div class="pick">${AUFTRAG_MODI.map(m => `<button type="button" data-act="amodus" data-v="${esc(m)}" aria-pressed="${S.askAuftrag.modus === m}">${esc(m)}</button>`).join("")}</div>
         <label class="f"><span>Auftrag (frei)</span><input id="auftragText" placeholder="z. B. Waldstück nördlich Parkplatz absuchen, Person männlich, dunkle Jacke" value="${esc(S.askAuftrag.text || "")}"></label>
         <div class="row"><button class="go" data-act="doauftrag">Auftrag eintragen</button><button class="ghost" data-act="noauftrag">Abbrechen</button></div></div></div>` : ""}
-    ${S.askLage && !dis ? `<div class="askpil auftrag"><label class="f" style="flex:1 1 320px"><span>Lagemeldung an EvD/FüGr</span><input id="lageText" placeholder="z. B. Person im Waldstück nördl. Parkplatz gesichtet, Einsatzkräfte eingewiesen" value="${esc(S.askLage.text || "")}"></label>
-      <button class="go" data-act="dolage">Meldung eintragen</button><button class="ghost" data-act="nolage">Abbrechen</button></div>` : ""}
     ${S.askSwap && !dis && last ? `<div class="askpil"><label class="f"><span>Pilotenwechsel – neuer Pilot${st === "luft" ? " (Drohne bleibt in der Luft)" : " ab dem nächsten Start"}</span><select id="swapPilot">${pilotOptions(d, "", "– neuen Piloten wählen –")}</select></label>
       <button class="go" data-act="dopilswap">⇄ Wechsel · jetzt</button><button class="ghost" data-act="noswap">Abbrechen</button></div>` : ""}
     ${S.askPilot && !dis ? `<div class="askpil"><label class="f"><span>Wer fliegt? (Pilot)</span><select id="startPilot">${pilotOptions(d, S.askPilot.pre, "– Pilot wählen –")}</select></label>
       <button class="go" data-act="logstart" data-pick="1">▶ Starten · jetzt</button><button class="ghost" data-act="nostart">Abbrechen</button></div>` : q ? `<div class="quick">${q}</div>` : ""}
     ${dis ? "" : `<div class="log-in"><input type="time" id="logTime" class="mono" value="${nowTime()}" aria-label="Uhrzeit"><input id="logText" placeholder="Eintrag, z. B. Person im Planquadrat G2 gesichtet" aria-label="Protokolleintrag"><button class="primary" data-act="logadd">Eintragen</button></div>`}
-    ${log.length ? `<div class="log">${log.slice().reverse().map(x => `<div class="log-row"><span class="tm">${esc(x.zeit)}</span><span class="tx">${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ""}${esc(x.text)}${x._pending ? ` <span class="muted" title="Noch nicht übertragen">⏳</span>` : ""}</span>${dis ? "<span></span>" : `<span class="row" style="gap:2px;flex-wrap:nowrap"><button class="ghost sm" data-act="logfix" data-id="${esc(x.id)}">Korrigieren</button>${isAdmin() ? (S.confirm === "l-" + x.id ? `<button class="sm danger" data-act="logdel" data-id="${esc(x.id)}">Löschen?</button>` : `<button class="ghost danger sm" data-act="askdel" data-k="l-${esc(x.id)}" aria-label="Eintrag löschen">✕</button>`) : ""}</span>`}</div>`).join("")}</div>` : `<span class="muted">Noch keine Einträge.</span>`}
+    ${log.length ? `<div class="log">${log.slice().reverse().map(x => S.logEdit === x.id && !dis ? `<div class="log-row edit"><input type="time" id="le-time" class="mono" value="${esc(x.zeit)}" aria-label="Uhrzeit"><input id="le-text" value="${esc(x.text)}" aria-label="Eintrag"><span class="row" style="gap:4px;flex-wrap:nowrap"><button class="sm primary" data-act="logsave" data-id="${esc(x.id)}">Speichern</button><button class="ghost sm" data-act="lognoedit">Abbrechen</button></span></div>`
+      : `<div class="log-row"><span class="tm">${esc(x.zeit)}</span><span class="tx">${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ""}${esc(x.text)}${x.geaendert ? ` <span class="muted" style="font-size:12px" title="${esc(x.original ? "Ursprünglich: " + x.original : "")}">(geändert)</span>` : ""}${x._pending ? ` <span class="muted" title="Noch nicht übertragen">⏳</span>` : ""}</span>${dis ? "<span></span>" : `<span class="row" style="gap:2px;flex-wrap:nowrap"><button class="ghost sm" data-act="logedit" data-id="${esc(x.id)}">Ändern</button>${isAdmin() ? (S.confirm === "l-" + x.id ? `<button class="sm danger" data-act="logdel" data-id="${esc(x.id)}">Löschen?</button>` : `<button class="ghost danger sm" data-act="askdel" data-k="l-${esc(x.id)}" aria-label="Eintrag löschen">✕</button>`) : ""}</span>`}</div>`).join("")}</div>` : `<span class="muted">Noch keine Einträge.</span>`}
   </section>`;
 }
 function logPush(text, tag, zeit) {
@@ -1433,19 +1436,24 @@ function actions() {
   if (S.remoteChanged) h += `<span class="confirm">Jemand anderes hat diesen Bericht geändert. <button class="sm" data-act="reload">Neu laden</button></span>`;
   if (S.pendingHash) h += `<span class="confirm">Änderungen verwerfen? <button class="sm danger" data-act="discard">Verwerfen</button><button class="sm" data-act="stay">Bleiben</button></span>`;
   if (S.confirm === "delete") h += `<span class="confirm">Bericht endgültig löschen? <button class="sm danger" data-act="dodelete">Löschen</button><button class="sm" data-act="nodelete">Abbrechen</button></span>`;
-  else if (S.confirm === "close") { const ab = closers();
-    h += `<span class="confirm">${isTablet() ? "Danach kann nur noch der Admin den Bericht ändern, und er verschwindet vom Tablet. " : ""}<select id="closeBy" data-closeby aria-label="Kontrolliert und abgeschlossen von" style="width:auto;max-width:240px">${ab.length ? `<option value="">– Kontrolliert / abgeschlossen von –</option>` + ab.map(m => `<option value="${esc(m.id)}" ${S.closeBy === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("") : `<option value="">Niemand freigegeben</option>`}</select>
-      <button class="sm" data-act="pdf">PDF</button><button class="sm primary" data-act="doclose">Abschließen</button><button class="sm" data-act="nodelete">Abbrechen</button></span>`; }
+  else if (S.confirm === "close") h += `<span class="confirm">${isTablet() ? "Danach kann nur noch der Admin den Bericht ändern, und er verschwindet vom Tablet. " : ""}Bericht abschließen? <button class="sm primary" data-act="doclose">Abschließen</button><button class="sm" data-act="nodelete">Abbrechen</button></span>`;
+  else if (S.confirm === "kontrolle") h += `<span class="confirm">Bericht geprüft und endgültig freigeben? <button class="sm primary" data-act="dokontrolle">✓ Endkontrolle bestätigen</button><button class="sm" data-act="nodelete">Abbrechen</button></span>`;
   else {
     if (isAdmin() && !d._new) h += `<button class="ghost danger" data-act="delete">Löschen</button>`;
     if (!d._new && d.status !== "abgeschlossen") h += `<button data-act="close">Abschließen</button>`;
     if (isAdmin() && d.status === "abgeschlossen") h += `<button data-act="reopen">Wieder öffnen</button>`;
+    if (isAdmin() && d.status === "abgeschlossen" && !d.kontrolle) h += `<button class="primary" data-act="kontrolle">✓ Endkontrolle</button>`;
   }
-  h += `<button data-act="pdf">Bericht als PDF</button>`;
+  if (isAdmin()) h += `<button data-act="pdf">Bericht als PDF</button>`;
   if (!ro()) h += `<button class="primary" data-act="save">Speichern</button>`;
   el.innerHTML = h;
 }
-const closers = () => S.members.filter(m => m.abschluss && m.aktiv !== false);
+// Stand eines Berichts: entwurf → abgeschlossen (wartet auf Endkontrolle) → kontrolliert (durch Admin)
+const mStand = m => m.status !== "abgeschlossen" ? "entwurf" : m.kontrolle ? "kontrolliert" : "abgeschlossen";
+const STAND_CHIP = { entwurf: ["neutral", "Entwurf"], abgeschlossen: ["warn", "Wartet auf Kontrolle"], kontrolliert: ["ok", "Kontrolliert"] };
+const standChip = m => { const [c, l] = STAND_CHIP[mStand(m)]; return `<span class="chip ${c}">${l}</span>`; };
+const fmtTs = z => z ? new Date(z).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "";
+const meName = () => { const u = me() || {}; return u.name || u.username || ""; };
 function updateDerived() {
   const d = S.draft; if (!d) return;
   (d.flights || []).forEach((f, i) => { const e = document.getElementById("fd-" + i); if (e) e.textContent = fmtH(flightMin(f)) + " h"; });
@@ -1956,7 +1964,7 @@ function vMitglieder(dis, used) {
   if (!S.members.length) return h + `<p class="muted">Noch keine Mitglieder. Trage hier alle ein, die als Pilot, Spotter, Techniker oder Verbindung im Bericht auftauchen sollen.</p></section></div>`;
   h += `<div class="mlist2">${S.members.map(m => {
     const us = uasState(m), open = S.editMember === m.id;
-    const chips = `${m.aktiv === false ? `<span class="chip neutral">Inaktiv</span>` : ""}${m.abschluss ? `<span class="chip ok">Abschluss</span>` : ""}${m.gesperrt ? `<a class="chip bad" href="#p-${esc(m.id)}" style="text-decoration:none">Pilot gesperrt</a>` : ""}${us === "abgelaufen" ? `<span class="chip bad">UAS-Nachweis abgelaufen</span>` : us === "laeuft_ab" ? `<span class="chip warn">UAS-Nachweis läuft ab</span>` : ""}`;
+    const chips = `${m.aktiv === false ? `<span class="chip neutral">Inaktiv</span>` : ""}${m.gesperrt ? `<a class="chip bad" href="#p-${esc(m.id)}" style="text-decoration:none">Pilot gesperrt</a>` : ""}${us === "abgelaufen" ? `<span class="chip bad">UAS-Nachweis abgelaufen</span>` : us === "laeuft_ab" ? `<span class="chip warn">UAS-Nachweis läuft ab</span>` : ""}`;
     let r = `<div class="mm ${open ? "open" : ""} ${m.aktiv === false ? "inaktiv" : ""}"><button type="button" class="mm-h" data-act="editmember" data-id="${esc(m.id)}" aria-expanded="${open}">
       <span class="mm-n"><b>${esc(m.name)}</b><span class="muted">${esc(memberLine(m) || "Abteilung und Dienstgrad noch nicht eingetragen")}</span>
       ${m.ausbildungen.length ? `<span class="mm-a">${m.ausbildungen.map(a => `<span class="tag2">${esc(a)}</span>`).join("")}</span>` : ""}</span>
@@ -1968,7 +1976,6 @@ function vMitglieder(dis, used) {
         <label class="f"><span>UAS-Nachweis gültig bis</span><input type="date" id="mu-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="uasBis" value="${esc(m.uasBis)}" ${dis}></label>
         <label class="f w2"><span>Bemerkung / weitere Nachweise</span><input id="mq-${esc(m.id)}" data-mem="${esc(m.id)}" data-field="quali" value="${esc(m.quali || "")}" placeholder="z. B. Nummer des Fernpiloten-Zeugnisses" ${dis}></label>
       </div>
-      <label class="chkline"><input type="checkbox" id="mab-${esc(m.id)}" data-memabs="${esc(m.id)}" ${m.abschluss ? "checked" : ""} ${dis}><span>Darf Berichte abschließen / kontrollieren</span></label>
       ${vNachweise(m, dis)}
       <div class="wx-g"><span class="wx-l">Ausbildung (antippen)</span><div class="pick">${[...listen("ausbildungen"), ...m.ausbildungen.filter(a => !listen("ausbildungen").includes(a))].map(a => `<button type="button" data-act="mausb" data-id="${esc(m.id)}" data-v="${esc(a)}" aria-pressed="${m.ausbildungen.includes(a)}" ${dis}>${esc(a)}</button>`).join("")}</div></div>
       ${dis ? "" : `<div class="row"><a class="btn" href="#p-${esc(m.id)}">Personenseite / Pilotenfreigabe</a><button class="sm ghost" data-act="togglemember" data-id="${esc(m.id)}">${m.aktiv === false ? "Aktivieren" : "Inaktiv setzen"}</button>${used.has(m.id) ? `<span class="muted" style="font-size:12.5px">Kommt in Berichten vor – nur inaktiv setzen möglich.</span>` : (S.confirm === "m-" + m.id ? `<span class="confirm">Löschen? <button class="sm danger" data-act="delmember" data-id="${esc(m.id)}">Ja</button><button class="sm" data-act="noconfirm">Nein</button></span>` : `<button class="sm ghost danger" data-act="askdel" data-k="m-${esc(m.id)}">Löschen</button>`)}</div>`}
@@ -2104,7 +2111,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.id === "dunlockText") { e.preventDefault(); act("ddounlock", document.querySelector("[data-act=ddounlock]")); }
   if (e.key === "Enter" && e.target.id === "lockText") { e.preventDefault(); act("dolock", document.querySelector("[data-act=dolock]")); }
   if (e.key === "Enter" && e.target.id === "unlockText") { e.preventDefault(); act("dounlock", document.querySelector("[data-act=dounlock]")); }
-  if (e.key === "Enter" && e.target.id === "lageText") { e.preventDefault(); act("dolage", e.target); }
+  if (e.key === "Enter" && e.target.id === "le-text") { e.preventDefault(); act("logsave", document.querySelector("[data-act=logsave]")); }
   if (e.key === "Enter" && e.target.id === "auftragText") { e.preventDefault(); act("doauftrag", e.target); }
   if (e.key === "Enter" && e.target.id === "logText") { e.preventDefault(); act("logadd", e.target); }
 });
@@ -2145,14 +2152,17 @@ function act(a, b) {
       S.confirm = "close"; actions(); break;
     }
     case "doclose": {
-      const by = ($("#closeBy") || {}).value || "";
-      if (!closers().length) { toast("Noch niemand darf Berichte abschließen. Der Admin legt das unter Stammdaten → Mitglieder fest."); return; }
-      if (!by) { toast("Bitte auswählen, wer den Bericht kontrolliert und abschließt."); const el = $("#closeBy"); if (el) el.focus(); return; }
-      S.confirm = null; S.closeBy = ""; d.status = "abgeschlossen"; if (!d.ende) d.ende = nowTime();
-      d.abschluss = { memberId: by, name: memberName(by), zeit: new Date().toISOString() };
-      saveDraft(isTablet() ? "einsaetze" : undefined).then(() => toast("Bericht abgeschlossen")); break;
+      S.confirm = null; d.status = "abgeschlossen"; if (!d.ende) d.ende = nowTime();
+      d.abschluss = { name: meName(), zeit: new Date().toISOString() }; delete d.kontrolle;
+      saveDraft(isTablet() ? "einsaetze" : undefined).then(() => toast(isAdmin() ? "Bericht abgeschlossen – jetzt noch die Endkontrolle" : "Bericht abgeschlossen")); break;
     }
-    case "reopen": d.status = "entwurf"; delete d.abschluss; saveDraft(); break;
+    case "kontrolle": S.confirm = "kontrolle"; actions(); break;
+    case "dokontrolle": {
+      if (!isAdmin()) return; S.confirm = null;
+      d.kontrolle = { name: meName(), zeit: new Date().toISOString() };
+      saveDraft().then(() => toast("Endkontrolle bestätigt")); break;
+    }
+    case "reopen": d.status = "entwurf"; delete d.abschluss; delete d.kontrolle; saveDraft(); break;
     case "logout": S.confirm = "logout"; header(); break;
     case "dologout": S.confirm = null; logout(); break;
     case "logfix": { const x = S.protokoll.find(y => y.id === b.dataset.id); const tx = $("#logText"); if (x && tx) { tx.value = `Korrektur zu ${x.zeit}: `; tx.focus(); tx.setSelectionRange(tx.value.length, tx.value.length); } break; }
@@ -2238,12 +2248,15 @@ function act(a, b) {
     case "auftrag": S.askAuftrag = { modus: "", text: "" }; S.askSwap = false; S.askPilot = null; render(); { const el = $("#auftragText"); if (el) el.focus(); } break;
     case "amodus": { const tx = $("#auftragText"); S.askAuftrag.text = tx ? tx.value : ""; S.askAuftrag.modus = S.askAuftrag.modus === b.dataset.v ? "" : b.dataset.v; render(); break; }
     case "noauftrag": S.askAuftrag = null; render(); break;
-    case "lage": S.askLage = { text: "" }; S.askAuftrag = null; S.askSwap = false; S.askPilot = null; render(); { const el = $("#lageText"); if (el) el.focus(); } break;
-    case "nolage": S.askLage = null; render(); break;
-    case "dolage": {
-      const tx = (($("#lageText") || {}).value || "").trim();
-      if (!tx) { toast("Bitte den Inhalt der Lagemeldung eintragen."); const el = $("#lageText"); if (el) el.focus(); return; }
-      S.askLage = null; logPush(`Meldung an EvD/FüGr: ${tx}`, "Lage", nowTime()); break;
+    case "logedit": S.logEdit = b.dataset.id; render(); { const el = $("#le-text"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } } break;
+    case "lognoedit": S.logEdit = null; render(); break;
+    case "logsave": {
+      const x = S.protokoll.find(y => y.id === b.dataset.id); if (!x) return;
+      const z = ($("#le-time") || {}).value || x.zeit, t = (($("#le-text") || {}).value || "").trim();
+      if (!t) { toast("Der Eintrag darf nicht leer sein."); return; }
+      S.logEdit = null;
+      if (z === x.zeit && t === x.text) { render(); return; }
+      Store.upsert("protokoll", x.id, { zeit: z, text: t }).then(() => toast("Eintrag geändert")); break;
     }
     case "doauftrag": {
       const tx = ($("#auftragText") || {}).value || "", mo = S.askAuftrag.modus;
@@ -2281,7 +2294,9 @@ function act(a, b) {
       break;
     }
     case "logland": { const t = nowTime(), f = d.flights[d.flights.length - 1]; if (!f.landung) f.landung = t; f.pause = false; S.dirty = true; logPush(`Flug beendet, Flugzeit gesamt ${fmtH(missionFlightMin(d))} h`, "Landung", t); break; }
-    case "logquick": { const tx = $("#logText"); const extra = tx && tx.value.trim(); logPush(extra ? `${b.dataset.t}: ${extra}` : b.dataset.t, "", ($("#logTime") || {}).value); if (tx) tx.value = ""; break; }
+    case "logquick": { const tx = $("#logText"); const extra = tx && tx.value.trim();
+      if (b.dataset.need && !extra) { toast("Inhalt der Lagemeldung unten in die Eingabezeile schreiben, dann den Knopf tippen."); if (tx) { tx.placeholder = "Inhalt der Lagemeldung …"; tx.focus(); } return; }
+      logPush(extra ? `${b.dataset.t}: ${extra}` : b.dataset.t, b.dataset.tag || "", ($("#logTime") || {}).value); if (tx) tx.value = ""; break; }
     case "logadd": { const tx = $("#logText"); const v = tx.value.trim(); if (!v) { toast("Bitte einen Text eingeben."); tx.focus(); return; } logPush(v, "", $("#logTime").value); break; }
     case "logdel": S.confirm = null; Store.del("protokoll", b.dataset.id); render(); break;
     case "pick": {
@@ -2495,9 +2510,10 @@ async function savePDF(c, name) {
 }
 function unitLabel() { return [S.config.einheit, S.config.gruppe].filter(Boolean).join(" · ") || "Feuerwehr Villingen-Schwenningen · Drohnengruppe"; }
 async function reportPDF() {
+  if (!isAdmin()) { toast("PDF-Berichte erstellt der Admin."); return; }
   const m = S.draft; if (!m) return; const c = pdfNew(); if (!c) return; const d = c.doc; const logo = await loadLogo();
   const U = m.typ === "uebung", w = m.wetter || {};
-  pdfHeader(c, U ? "Übungsbericht UAS" : "Einsatzbericht UAS", unitLabel(), [m.nr || "", fmtDate(m.datum) + (m.status === "abgeschlossen" ? "" : " · ENTWURF")], logo);
+  pdfHeader(c, U ? "Übungsbericht UAS" : "Einsatzbericht UAS", unitLabel(), [m.nr || "", fmtDate(m.datum) + ({ entwurf: " · ENTWURF", abgeschlossen: " · NICHT KONTROLLIERT", kontrolliert: "" }[mStand(m)])], logo);
   sec(c, U ? "Übungsdaten" : "Einsatzdaten");
   kv(c, [
     [U ? "Thema" : "Stichwort", m.stichwort, 2], ["Datum", fmtDate(m.datum)],
@@ -2508,7 +2524,7 @@ async function reportPDF() {
   ]);
   if (m.auftrag) para(c, U ? "Übungsziel / Inhalte" : "Auftrag", m.auftrag);
   const plog = protoFor(m.id);
-  if (plog.length) { sec(c, "Einsatzprotokoll"); table(c, ["Zeit", "Eintrag"], plog.map(x => [x.zeit, (x.tag ? x.tag + ": " : "") + x.text]), [16, 162]); }
+  if (plog.length) { sec(c, "Einsatzprotokoll"); table(c, ["Zeit", "Eintrag"], plog.map(x => [x.zeit, (x.tag ? x.tag + ": " : "") + x.text + (x.geaendert ? " (geändert)" : "")]), [16, 162]); }
   const fts = fotosFor(m.id).slice().sort((a, b2) => (tmin(a.zeit) ?? 0) - (tmin(b2.zeit) ?? 0));
   if (fts.length) {
     toast("Bilder werden für das PDF geladen …");
@@ -2579,8 +2595,9 @@ async function reportPDF() {
   para(c, U ? "Übungsverlauf / Ergebnis" : "Ergebnis / Lagemeldungen", m.ergebnis);
   para(c, "Besonderheiten / Störungen / Schäden", m.besonderheiten);
   if ((m.aenderungen || []).length) para(c, "Änderungsvermerke", m.aenderungen.map(a => `${new Date(a.zeit).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}: ${a.text} (${a.von})`).join("\n"));
-  if (m.status === "abgeschlossen" && m.abschluss) {
-    para(c, "Kontrolliert und abgeschlossen von", `${m.abschluss.name || memberName(m.abschluss.memberId)} · ${new Date(m.abschluss.zeit).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })} Uhr`);
+  if (m.status === "abgeschlossen") {
+    para(c, "Abschluss und Kontrolle", [m.abschluss ? `Abgeschlossen: ${m.abschluss.name || "–"} · ${fmtTs(m.abschluss.zeit)} Uhr` : "Abgeschlossen",
+      m.kontrolle ? `Endkontrolle: ${m.kontrolle.name || "–"} · ${fmtTs(m.kontrolle.zeit)} Uhr` : "Endkontrolle: noch offen"].join("\n"));
   }
   footer(c, `${U ? "Übungsbericht" : "Einsatzbericht"} ${m.nr || ""} · ${unitLabel()}`);
   savePDF(c, `${U ? "Uebungsbericht" : "Einsatzbericht"}_${m.datum || ""}_${m.nr || ""}.pdf`);

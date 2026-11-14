@@ -44,8 +44,11 @@ onRecordUpdateRequest((e) => {
   const auth = e.auth;
   const before = e.record.original();
   if (auth && auth.getString("role") === "admin" && before.getString("status") === "abgeschlossen") {
-    let d = {};
+    let d = {}, d0 = {};
     try { d = JSON.parse(e.record.getString("data") || "{}") || {}; } catch (err) { d = {}; }
+    try { d0 = JSON.parse(before.getString("data") || "{}") || {}; } catch (err) { d0 = {}; }
+    // Die Endkontrolle selbst ist keine Korrektur
+    if (!d0.kontrolle && d.kontrolle && e.record.getString("status") === "abgeschlossen") return e.next();
     const list = Array.isArray(d.aenderungen) ? d.aenderungen : [];
     list.push({ zeit: new Date().toISOString(), von: auth.getString("username"), text: e.record.getString("status") === "abgeschlossen" ? "Korrektur nach Abschluss" : "Wieder geöffnet" });
     d.aenderungen = list.slice(-50);
@@ -59,3 +62,16 @@ onRecordCreateRequest((e) => {
   if (e.auth) e.record.set("autor", e.auth.id);
   return e.next();
 }, "protokoll", "fotos", "pilotsperren", "wartung");
+
+// Protokolleintrag geändert: ursprünglichen Text einmalig sichern, Änderungszeit setzen
+onRecordUpdateRequest((e) => {
+  const before = e.record.original();
+  const oldTxt = before.getString("text"), oldZeit = before.getString("zeit");
+  if (e.record.getString("text") !== oldTxt || e.record.getString("zeit") !== oldZeit) {
+    if (!before.getString("original")) e.record.set("original", oldZeit + " " + oldTxt);
+    e.record.set("geaendertAm", new Date().toISOString());
+  } else {
+    e.record.set("original", before.getString("original")); e.record.set("geaendertAm", before.getString("geaendertAm"));
+  }
+  return e.next();
+}, "protokoll");
