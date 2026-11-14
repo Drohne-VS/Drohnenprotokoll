@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 13.11.2026 · App-Version 2.2.1 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
+Stand: 13.11.2026 · App-Version 2.3 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
 
 ---
 
@@ -123,7 +123,11 @@ Protokoll wie ein **Funkbuch**: Das Tablet löscht nichts, Fehler werden mit „
 6. **Ergebnis & Besonderheiten**; eingeklappt „Weitere Angaben“ (Positionen mit UTMREF/Lageskizze,
    Luftraum). Feld „Auftrag“ entfernt (V2.2; steht im Protokoll, alte Werte bleiben im PDF).
    **„📍 Mein Standort“** (V2.2) setzt den Startplatz per GPS des Geräts; weitere Punkte durch Tippen
-   in die Skizze (Auswahl „Antippen setzt“).
+   in die Karte (Auswahl „Antippen setzt“), Punkte per Finger verschiebbar.
+   **Karte (V2.3):** Leaflet 1.9.4 (lokal in `pb_public/vendor/leaflet/`), Grundkarte **basemap.de** (BKG,
+   „© GeoBasis-DE / BKG (Jahr) CC BY 4.0“), umschaltbar auf OpenStreetMap; frei zoombar (Einsatzradius bis
+   8 km), Maßstab. Braucht Internet für die Kartenbilder; Kacheln werden nicht im App-Speicher gehalten.
+   Ohne geladene Kartenbibliothek erscheint die alte Raster-Skizze. Im PDF bleibt die Raster-Lageskizze.
 
 **Crew-Rollen:** Pilot · Luftraumbeobachter (Spotter) · Techniker (führt Protokoll) ·
 Verbindung EvD/Führungsgruppe. Eine Person darf Spotter + Techniker sein.

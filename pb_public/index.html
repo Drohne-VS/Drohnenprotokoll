@@ -15,6 +15,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <script src="vendor/pocketbase.umd.js"></script>
 <script src="vendor/jspdf.umd.min.js" defer></script>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<script src="vendor/leaflet/leaflet.js" defer></script>
 <style>
 /* Layout: Einsatzleitstand – feste Kopfleiste mit Reitern, darunter eine Arbeitsspalte (max. 1120px), Formulare in Abschnitten wie ein Vordruck */
 :root {
@@ -193,6 +195,12 @@ tfoot td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: 0;
 .pos-out a { color: var(--chart); }
 .sketch { border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--surface); }
 .sketch canvas { display: block; width: 100%; height: 360px; touch-action: manipulation; }
+.mapslot, .lmap { width: 100%; height: 440px; }
+.lmap { background: var(--sunken); font-family: var(--f-body); }
+.pm { width: 26px; height: 26px; border-radius: 50%; color: #fff; font: 700 13px/22px var(--f-display); text-align: center; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.45); box-sizing: border-box; }
+.pm.start { border-radius: 4px; } .pm.gebiet { width: 20px; height: 20px; font-size: 10px; line-height: 16px; }
+.leaflet-tooltip.pl { font: 600 12px var(--f-body); padding: 1px 5px; border-radius: 3px; box-shadow: none; }
+.leaflet-tooltip.dist { font: 500 11px var(--f-mono); padding: 0 4px; background: rgba(255,255,255,.85); border: 0; box-shadow: none; }
 .sketch-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 8px 10px; border-top: 1px solid var(--line); background: var(--bg); font-size: 13px; }
 .sketch-bar select { width: auto; padding: 5px 7px; font-size: 13px; }
 
@@ -834,7 +842,7 @@ function downloadFile(filename, data) {
 }
 
 /* ---------- Fotos (V2.0) ---------- */
-const APP_VERSION = "2.2.1";
+const APP_VERSION = "2.3";
 const QUELLE = { einsatzstelle: "Einsatzstelle", drohne: "Drohne" };
 const FotoQ = (() => {
   let dbp = null, flushing = false, items = [];
@@ -1247,11 +1255,11 @@ function vEdit() {
   if (S.extraOpen == null) S.extraOpen = hasExtra;
   h += `<details class="sec extra" id="extra" ${S.extraOpen ? "open" : ""}><summary><h2>Weitere Angaben <span class="muted" style="font-weight:600;font-size:14px;text-transform:none;letter-spacing:0">optional${hasExtra ? " · ausgefüllt" : ""}</span></h2></summary>
     <div class="sec-h"><h3>Positionen &amp; Lageskizze</h3>${dis ? "" : `<div class="row" style="gap:6px"><button class="sm go" data-act="gps">📍 Mein Standort</button><button class="sm" data-act="addpos">+ Position</button></div>`}</div>
-    <p class="muted" style="font-size:13.5px">„Mein Standort“ trägt den Startplatz per GPS ein. Danach weitere Punkte direkt in die Skizze tippen.</p>
+    <p class="muted" style="font-size:13.5px">„Mein Standort“ setzt den Startplatz per GPS. Weitere Punkte in die Karte tippen, Punkte lassen sich verschieben.</p>
     <div class="posgrid"><div style="display:grid;gap:8px">${(d.positions || []).length ? d.positions.map((p, i) => posRow(p, i)).join("") : `<div class="pos"><span class="muted">Keine Positionen eingetragen.</span></div>`}</div>
-    <div class="sketch"><canvas id="sketch" aria-label="Lageskizze"></canvas>
+    <div class="sketch">${mapReady() ? `<div id="mapslot" class="mapslot"></div>` : `<canvas id="sketch" aria-label="Lageskizze"></canvas>`}
       <div class="sketch-bar"><span class="muted">Antippen setzt:</span><select id="clickType">${Object.entries(PT).map(([k, v]) => `<option value="${k}" ${S.clickType === k ? "selected" : ""}>${v.l}</option>`).join("")}</select>
-      <span class="muted" style="margin-left:auto">Raster in Metern, Norden oben</span></div></div></div>
+      </div></div></div>
     <div class="grid">
       ${inp("Luftraum / Geozonen / Freigaben", "luftraum", { cls: "wf", area: true, ph: "z. B. Kontrollzone, Absprache mit Flugsicherung / Polizei" })}
     </div>
@@ -1527,7 +1535,72 @@ function drawSketch(ctx, positions, W, H, pal) {
 }
 function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 let sketchM = null;
+/* ----- Karte (Leaflet; Kartengrundlage basemap.de des BKG, wahlweise OpenStreetMap) ----- */
+const mapReady = () => typeof L !== "undefined" && !!L.map;
+const MAP_HOME = [48.0603, 8.4586];
+let LMAP = null;
+function ensureMap() {
+  if (LMAP) return LMAP;
+  const el = document.createElement("div"); el.className = "lmap";
+  const map = L.map(el, { zoomControl: true }).setView(MAP_HOME, 13);
+  const bm = L.tileLayer("https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_farbe/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png",
+    { maxZoom: 19, attribution: "© GeoBasis-DE / BKG (" + new Date().getFullYear() + ") CC BY 4.0" });
+  const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap-Mitwirkende" });
+  bm.addTo(map);
+  L.control.layers({ "Karte (basemap.de)": bm, "OpenStreetMap": osm }, null, { position: "topright" }).addTo(map);
+  L.control.scale({ imperial: false, maxWidth: 140 }).addTo(map);
+  map.attributionControl.setPrefix(false);
+  const grp = L.layerGroup().addTo(map);
+  map.on("click", e => mapClick(e.latlng));
+  LMAP = { map, el, grp, fitFor: null };
+  return LMAP;
+}
+function mapClick(ll) {
+  if (ro() || !S.draft) return;
+  const d = S.draft; d.positions = d.positions || [];
+  const t = d.positions.some(p => p.typ === "start") ? S.clickType : "start";
+  const n = d.positions.filter(p => p.typ === t).length + 1;
+  d.positions.push({ id: uid("p"), typ: t, label: t === "start" ? "Startplatz" : t === "gebiet" ? `G${n}` : `${PT[t].l} ${n}`, lat: +ll.lat.toFixed(6), lon: +ll.lng.toFixed(6) });
+  markDirty(); render();
+}
+function drawMapLayers() {
+  const M = LMAP, d = S.draft; M.grp.clearLayers();
+  const pts = (d.positions || []).map((p, i) => ({ p, i })).filter(o => validPos(o.p));
+  const g = pts.filter(o => o.p.typ === "gebiet").map(o => [+o.p.lat, +o.p.lon]);
+  if (g.length >= 3) L.polygon(g, { color: PT.gebiet.c, weight: 2, dashArray: "6 4", fillOpacity: .12, interactive: false }).addTo(M.grp);
+  else if (g.length === 2) L.polyline(g, { color: PT.gebiet.c, weight: 2, dashArray: "6 4", interactive: false }).addTo(M.grp);
+  const st = pts.find(o => o.p.typ === "start");
+  if (st) pts.filter(o => o.p.typ === "ziel" || o.p.typ === "fund").forEach(o => {
+    L.polyline([[+st.p.lat, +st.p.lon], [+o.p.lat, +o.p.lon]], { color: "#3d454c", weight: 1.5, dashArray: "3 5", interactive: false })
+      .bindTooltip(fmtM(GEO.dist(st.p, o.p)), { permanent: true, direction: "center", className: "dist" }).addTo(M.grp);
+  });
+  pts.forEach(({ p, i }) => {
+    const t = PT[p.typ] || PT.sonst;
+    const icon = L.divIcon({ className: "", html: `<div class="pm ${esc(p.typ)}" style="background:${t.c}">${t.s}</div>`, iconSize: p.typ === "gebiet" ? [20, 20] : [26, 26] });
+    const mk = L.marker([+p.lat, +p.lon], { icon, draggable: !ro(), title: p.label || t.l });
+    if (p.label) mk.bindTooltip(p.label, { permanent: true, direction: "right", offset: [12, 0], className: "pl" });
+    mk.on("dragend", () => { const ll = mk.getLatLng(); const q = S.draft.positions[i]; if (!q) return; q.lat = +ll.lat.toFixed(6); q.lon = +ll.lng.toFixed(6); delete q._raw; delete q._err; markDirty(); render(); });
+    mk.addTo(M.grp);
+  });
+  // Ausschnitt nur beim Öffnen eines Berichts bzw. nach „Mein Standort“ setzen – sonst bleibt der Zoom des Nutzers
+  if (M.el.clientWidth && (M.fitFor !== d.id || S.mapFocus)) {
+    if (S.mapFocus && st) M.map.setView([+st.p.lat, +st.p.lon], 16);
+    else if (pts.length > 1) M.map.fitBounds(L.latLngBounds(pts.map(o => [+o.p.lat, +o.p.lon])), { padding: [40, 40], maxZoom: 17 });
+    else if (pts.length === 1) M.map.setView([+pts[0].p.lat, +pts[0].p.lon], 16);
+    else M.map.setView(MAP_HOME, 13);
+    M.fitFor = d.id; S.mapFocus = false;
+  }
+}
+function mountMap() {
+  const slot = $("#mapslot"); if (!slot || !mapReady() || !S.draft) return false;
+  const M = ensureMap();
+  if (M.el.parentNode !== slot) slot.appendChild(M.el);
+  M.map.invalidateSize(false); drawMapLayers();
+  return true;
+}
+window.addEventListener("load", () => { if (S.view === "edit" && mapReady() && !$("#mapslot")) render(); });
 function drawScreenSketch() {
+  if (mountMap()) return;
   const cv = $("#sketch"); if (!cv || !S.draft) return;
   const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
   if (!W) return;
@@ -2021,7 +2094,7 @@ function act(a, b) {
         let p = dd.positions.find(x => x.typ === "start");
         if (p) { p.lat = lat; p.lon = lon; delete p._raw; delete p._err; }
         else dd.positions.unshift({ id: uid("p"), typ: "start", label: "Startplatz", lat, lon });
-        S.extraOpen = true; markDirty(); render();
+        S.extraOpen = true; S.mapFocus = true; markDirty(); render();
         toast(`Startplatz gesetzt (Genauigkeit ca. ${Math.round(pos.coords.accuracy)} m)`);
       }, err => toast(err.code === 1 ? "Standortzugriff nicht erlaubt – bitte in den Einstellungen für diese App/Seite freigeben." : "Standort konnte nicht ermittelt werden. Bitte im Freien erneut versuchen."),
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 });
