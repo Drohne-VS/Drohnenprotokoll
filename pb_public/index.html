@@ -115,6 +115,8 @@ button.sm { padding: 6px 9px; font-size: 13px; }
 .grid .wf { grid-column: 1 / -1; }
 @media (max-width: 520px) { .grid .w2 { grid-column: 1 / -1; } }
 .grid > * { min-width: 0; }
+.rowpair { grid-column: 1 / -1; display: grid; gap: 12px 14px; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+@media (max-width: 600px) { .rowpair { grid-template-columns: minmax(0, 1fr); } }
 /* iPhone/iPad: Datums- und Zeitfelder haben dort eine feste Eigenbreite und ragen sonst ins Nachbarfeld */
 @supports (-webkit-touch-callout: none) {
   input[type="date"], input[type="time"] { -webkit-appearance: none; appearance: none; display: block; min-height: 2.45em; max-width: 100%; }
@@ -832,7 +834,7 @@ function downloadFile(filename, data) {
 }
 
 /* ---------- Fotos (V2.0) ---------- */
-const APP_VERSION = "2.1.4";
+const APP_VERSION = "2.2";
 const QUELLE = { einsatzstelle: "Einsatzstelle", drohne: "Drohne" };
 const FotoQ = (() => {
   let dbp = null, flushing = false, items = [];
@@ -1212,10 +1214,11 @@ function vEdit() {
     ${inp("Datum", "datum", { type: "date" })}
     ${inp(U ? "Beginn" : "Alarmierung / Beginn", "beginn", { type: "time" })}
     ${inp("Ende", "ende", { type: "time" })}
-    ${inp(U ? "Thema" : "Stichwort", "stichwort", { cls: "w2", ph: U ? "z. B. Vermisstensuche Waldgebiet" : "z. B. Personensuche, Brand Gebäude" })}
-    ${inp("Ort / Adresse", "ort", { cls: "w2", ph: "Straße, Ort" })}
+    <div class="rowpair">${inp(U ? "Thema" : "Stichwort", "stichwort", { ph: U ? "z. B. Vermisstensuche Waldgebiet" : "z. B. Personensuche, Brand Gebäude" })}
+    ${inp("Ort / Adresse", "ort", { ph: "Straße, Ort" })}</div>
     ${inp("Anforderung durch", "anforderung", { options: [["", "– wählen –"], ...ANFORDERUNG.map(x => [x, x]), ...(d.anforderung && !ANFORDERUNG.includes(d.anforderung) ? [[d.anforderung, d.anforderung]] : [])], rr: true })}
     ${d.anforderung === "Sonstige" ? inp("Anforderung – wer?", "anforderungText", { ph: "z. B. Polizei, Nachbarwehr" }) : ""}
+    ${inp(U ? "Verantwortlich UAS" : "Einsatzleiter vor Ort", "einsatzleiter", { ph: "Name / Funkrufname" })}
     ${inp("Anbindung an", "anbindung", { options: [...ANBINDUNG, ...(d.anbindung && !ANBINDUNG.some(a => a[0] === d.anbindung) ? [[d.anbindung, ANB_LABEL[d.anbindung] || d.anbindung]] : [])] })}
   </div>
   <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis}>${esc(o)}</button>`).join("")}</div></div>`).join("")}</div>
@@ -1240,15 +1243,11 @@ function vEdit() {
   </div></section>`;
   // Optional, eingeklappt
   const w = d.wetter || {};
-  const hasExtra = !!(d.einsatzleiter || d.auftrag || d.luftraum || (d.positions || []).length);
+  const hasExtra = !!(d.luftraum || (d.positions || []).length);
   if (S.extraOpen == null) S.extraOpen = hasExtra;
   h += `<details class="sec extra" id="extra" ${S.extraOpen ? "open" : ""}><summary><h2>Weitere Angaben <span class="muted" style="font-weight:600;font-size:14px;text-transform:none;letter-spacing:0">optional${hasExtra ? " · ausgefüllt" : ""}</span></h2></summary>
-    <div class="grid">
-      ${inp(U ? "Verantwortlich UAS" : "Einsatzleiter vor Ort", "einsatzleiter", { ph: "Name / Funkrufname" })}
-      ${inp(U ? "Übungsziel / Inhalte" : "Auftrag", "auftrag", { area: true, cls: "wf", ph: U ? "Was wurde geübt?" : "Was soll die Drohnengruppe erkunden/liefern?" })}
-    </div>
-    <div class="sec-h"><h3>Positionen &amp; Lageskizze</h3>${dis ? "" : `<button class="sm" data-act="addpos">+ Position</button>`}</div>
-    <p class="muted" style="font-size:13.5px">Koordinaten als Dezimalgrad (<span class="mono">48.0767, 8.6386</span>) oder UTMREF (<span class="mono">32U MU 73081 24888</span>). Mit gesetztem Startplatz kannst du weitere Punkte direkt in die Skizze tippen.</p>
+    <div class="sec-h"><h3>Positionen &amp; Lageskizze</h3>${dis ? "" : `<div class="row" style="gap:6px"><button class="sm go" data-act="gps">📍 Mein Standort</button><button class="sm" data-act="addpos">+ Position</button></div>`}</div>
+    <p class="muted" style="font-size:13.5px">„Mein Standort“ trägt den Startplatz per GPS ein. Danach weitere Punkte direkt in die Skizze tippen.</p>
     <div class="posgrid"><div style="display:grid;gap:8px">${(d.positions || []).length ? d.positions.map((p, i) => posRow(p, i)).join("") : `<div class="pos"><span class="muted">Keine Positionen eingetragen.</span></div>`}</div>
     <div class="sketch"><canvas id="sketch" aria-label="Lageskizze"></canvas>
       <div class="sketch-bar"><span class="muted">Antippen setzt:</span><select id="clickType">${Object.entries(PT).map(([k, v]) => `<option value="${k}" ${S.clickType === k ? "selected" : ""}>${v.l}</option>`).join("")}</select>
@@ -2013,6 +2012,21 @@ function act(a, b) {
       break;
     }
     case "deluser": S.confirm = null; pb.collection("users").delete(b.dataset.id).then(() => { toast("Zugang gelöscht"); S.users = null; render(); }, () => toast("Zugang konnte nicht gelöscht werden.")); break;
+    case "gps": {
+      if (!navigator.geolocation) { toast("Dieses Gerät kann den Standort nicht ermitteln."); return; }
+      toast("Standort wird ermittelt …");
+      navigator.geolocation.getCurrentPosition(pos => {
+        const dd = S.draft; if (!dd || ro()) return; dd.positions = dd.positions || [];
+        const lat = +pos.coords.latitude.toFixed(6), lon = +pos.coords.longitude.toFixed(6);
+        let p = dd.positions.find(x => x.typ === "start");
+        if (p) { p.lat = lat; p.lon = lon; delete p._raw; delete p._err; }
+        else dd.positions.unshift({ id: uid("p"), typ: "start", label: "Startplatz", lat, lon });
+        S.extraOpen = true; markDirty(); render();
+        toast(`Startplatz gesetzt (Genauigkeit ca. ${Math.round(pos.coords.accuracy)} m)`);
+      }, err => toast(err.code === 1 ? "Standortzugriff nicht erlaubt – bitte in den Einstellungen für diese App/Seite freigeben." : "Standort konnte nicht ermittelt werden. Bitte im Freien erneut versuchen."),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 });
+      break;
+    }
     case "addpos": {
       const has = (d.positions || []).some(p => p.typ === "start");
       d.positions.push({ id: uid("p"), typ: has ? "ziel" : "start", label: has ? "" : "Startplatz", lat: null, lon: null });

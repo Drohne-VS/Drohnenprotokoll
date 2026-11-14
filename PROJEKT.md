@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 13.11.2026 · App-Version 2.1.4 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
+Stand: 13.11.2026 · App-Version 2.2 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
 
 ---
 
@@ -99,7 +99,8 @@ Protokoll wie ein **Funkbuch**: Das Tablet löscht nichts, Fehler werden mit „
 ## 5. Fachliche Festlegungen (mit der Drohnengruppe abgestimmt)
 
 **Bericht – Aufbau**
-1. **Einsatz/Übung**: Art, Nr., Datum, Beginn/Ende, Stichwort, Ort, Anforderung durch
+1. **Einsatz/Übung**: Art, Nr., Datum, Beginn/Ende, Stichwort + Ort/Adresse (breit, eigene Zeile),
+   darunter Anforderung durch, **Einsatzleiter vor Ort** (V2.2 aus „Weitere Angaben“ hierher), Anbindung an. Anforderung durch
    (*Leitstelle SBK / EvD / Sonstige* + Freitext), Anbindung an (*Führungsgruppe / Eigenständiger
    Bildschirm / Direkt EvD / Sonstige Einsatzleitung*), **Wetter** zum Antippen (Wetter/Wind/Sicht –
    nur Übersicht, **nicht** im Protokoll), **„Über den Flug informiert“** zum Abhaken mit Uhrzeit
@@ -119,8 +120,10 @@ Protokoll wie ein **Funkbuch**: Das Tablet löscht nichts, Fehler werden mit „
 5. **Verfügbare Einsatzkräfte**: je Person Ort *An der Einsatzstelle / Auf Wache*, Status
    (In der Crew / Verfügbar vor Ort / Auf Wache / Entlassen), eigene **Dienstzeit von–bis**,
    Knopf „Entlassen · jetzt“ (danach keine Dienstzeit mehr). Crew-Mitglieder erscheinen automatisch.
-6. **Ergebnis & Besonderheiten**; eingeklappt „Weitere Angaben“ (Einsatzleiter, Auftrag, Positionen
-   mit UTMREF/Lageskizze, Luftraum).
+6. **Ergebnis & Besonderheiten**; eingeklappt „Weitere Angaben“ (Positionen mit UTMREF/Lageskizze,
+   Luftraum). Feld „Auftrag“ entfernt (V2.2; steht im Protokoll, alte Werte bleiben im PDF).
+   **„📍 Mein Standort“** (V2.2) setzt den Startplatz per GPS des Geräts; weitere Punkte durch Tippen
+   in die Skizze (Auswahl „Antippen setzt“).
 
 **Crew-Rollen:** Pilot · Luftraumbeobachter (Spotter) · Techniker (führt Protokoll) ·
 Verbindung EvD/Führungsgruppe. Eine Person darf Spotter + Techniker sein.
