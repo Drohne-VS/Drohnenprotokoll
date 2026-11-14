@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 13.11.2026 · App-Version 2.4 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
+Stand: 13.11.2026 · App-Version 2.5 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
 
 ---
 
@@ -67,7 +67,7 @@ und mit Playwright durchklicken (Testzugänge nur lokal anlegen).
 |---|---|
 | `users` | Anmeldung per **Benutzername**; Feld `role`: `admin` oder `tablet`; Token 30 Tage gültig |
 | `config` | ein Datensatz: Einheit, Gruppe, Logo, Routine-Minuten (`routineMin30`, `routineMin90`), `meldestellen` (JSON-Liste Name/Telefon), `listen` (Auswahllisten abteilungen/dienstgrade/ausbildungen), `wartung` (JSON: inspMon, propStd, propMon) |
-| `members` | Mitglieder: Name, aktiv, `pilotGesperrt` (für alle lesbar, damit das Tablet Namen/Sperre kennt) |
+| `members` | Mitglieder: Name, aktiv, `pilotGesperrt`, `darfAbschliessen` (für alle lesbar, damit das Tablet Namen/Sperre/Abschluss-Auswahl kennt) |
 | `mitgliederdetails` | **nur Admin**: member, abteilung, dienstgrad, ausbildungen, uasBis, bemerkung, `nachweise` (geschützte PDFs/Bilder, z. B. Fernpiloten-Zeugnis) |
 | `pilotsperren` | Sperrvermerke (nur Admin): member, grund, seit, bis, aufhebung, autor |
 | `drones` | Drohnen: Name, Modell, Kennung, aktiv, `standard` (vorausgewählt), `privat`, `ausserBetrieb` + `ausserBetriebGrund` (für alle lesbar), `inBetriebSeit` |
@@ -143,6 +143,10 @@ Bei Start/Pilotenwechsel stehen „verfügbar vor Ort“ zuerst in der Auswahl.
 
 **Abschließen** nur, wenn jeder Abschnitt einen Piloten hat **und** der Flug beendet ist
 (nicht in der Luft, kein offener Akkuwechsel).
+Beim Abschließen Pflichtauswahl **„Kontrolliert / abgeschlossen von“** (V2.5) – nur Mitglieder mit
+Haken „Darf Berichte abschließen / kontrollieren“ (`members.darfAbschliessen`, Admin setzt ihn in den
+Mitglieder-Details). Gespeichert in `data.abschluss {memberId, name, zeit}`, steht im Bericht und im PDF;
+„Wieder öffnen“ löscht ihn. Die Unterschriftszeilen im PDF sind entfallen.
 
 **Kalender/Auswahllisten (2.1.1):** Solange ein Eingabefeld offen ist, wird die Ansicht wegen neuer
 Daten nicht neu aufgebaut (sonst schloss sich der Kalender bzw. stürzte die App ab); das passiert erst
