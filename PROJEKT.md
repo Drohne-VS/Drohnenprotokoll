@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 13.11.2026 · App-Version 2.3 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
+Stand: 13.11.2026 · App-Version 2.4 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
 
 ---
 
@@ -110,7 +110,7 @@ Protokoll wie ein **Funkbuch**: Das Tablet löscht nichts, Fehler werden mit „
    „▶ Flug starten“ (fragt Pilot) → in der Luft: „Akkuwechsel (Landung)“, „⇄ Pilotenwechsel“,
    „■ Flug beenden“ → nach Akkuwechsel: „▶ Weiter mit neuem Akku“. Außerdem „Auftrag erhalten“
    (Eingabefeld + Bildmodus **Normalbild / Wärmebild / Splitscreen**), „Lagemeldung an EvD/FüGr“,
-   „Funkverbindung gestört“, Freitext mit Uhrzeit.
+   „Funkverbindung gestört“, Freitext mit Uhrzeit. „Lagemeldung an EvD/FüGr“ öffnet ein Eingabefeld (V2.4), Eintrag mit Kennung „Lage“.
 3. **Fotos & Screenshots** (V2.0): Einsatzstellenfoto (Kamera) und Drohnen-Screenshots (Galerie,
    mehrere), Uhrzeit aus Datei, Quelle, Beschreibung; verkleinert auf max. 2560 px; geschützt; im PDF.
 4. **Flug & Crew**: Es gibt **einen durchgehenden Flug**; intern Abschnitte („flights“), geteilt
@@ -127,7 +127,13 @@ Protokoll wie ein **Funkbuch**: Das Tablet löscht nichts, Fehler werden mit „
    **Karte (V2.3):** Leaflet 1.9.4 (lokal in `pb_public/vendor/leaflet/`), Grundkarte **basemap.de** (BKG,
    „© GeoBasis-DE / BKG (Jahr) CC BY 4.0“), umschaltbar auf OpenStreetMap; frei zoombar (Einsatzradius bis
    8 km), Maßstab. Braucht Internet für die Kartenbilder; Kacheln werden nicht im App-Speicher gehalten.
-   Ohne geladene Kartenbibliothek erscheint die alte Raster-Skizze. Im PDF bleibt die Raster-Lageskizze.
+   Ohne geladene Kartenbibliothek erscheint die alte Raster-Skizze.
+   **Luftbild (V2.4):** DOP20 des LGL Baden-Württemberg (Open Data, WMTS `WMTS_LGL-BW_ATKIS_DOP_20_C`,
+   Layer `DOP_20_C`, GoogleMapsCompatible; Quellenvermerk „LGL-BW (Jahr) dl-de/by-2-0, www.lgl-bw.de“) –
+   nur Baden-Württemberg. Gewählte Kartenart wird gemerkt.
+   **PDF (V2.4):** „Lagekarte“ aus Kartenkacheln der gewählten Kartenart (Ausweichreihenfolge: gewählte →
+   basemap.de → OSM), mit Punkten, Linien, Maßstab, Nordpfeil, Quellenvermerk. Klappt nur, wenn der
+   Kartendienst CORS erlaubt und Netz da ist; sonst Raster-Lageskizze mit Hinweis.
 
 **Crew-Rollen:** Pilot · Luftraumbeobachter (Spotter) · Techniker (führt Protokoll) ·
 Verbindung EvD/Führungsgruppe. Eine Person darf Spotter + Techniker sein.

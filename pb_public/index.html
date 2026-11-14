@@ -842,7 +842,7 @@ function downloadFile(filename, data) {
 }
 
 /* ---------- Fotos (V2.0) ---------- */
-const APP_VERSION = "2.3";
+const APP_VERSION = "2.4";
 const QUELLE = { einsatzstelle: "Einsatzstelle", drohne: "Drohne" };
 const FotoQ = (() => {
   let dbp = null, flushing = false, items = [];
@@ -1097,7 +1097,7 @@ function route() {
   else { S.view = "einsaetze"; S.draft = null; S.dirty = false; }
   render(); window.scrollTo(0, 0);
 }
-function loadDraft(m) { if (!S.draft || S.draft.id !== m.id) { S.extraOpen = null; S.askPilot = null; S.askSwap = false; S.askAuftrag = null; } S.draft = clone(m); S.dirty = false; S.baseStamp = m.updatedAt || null; S.remoteChanged = false; S.pendingHash = null; }
+function loadDraft(m) { if (!S.draft || S.draft.id !== m.id) { S.extraOpen = null; S.askPilot = null; S.askSwap = false; S.askAuftrag = null; S.askLage = null; } S.draft = clone(m); S.dirty = false; S.baseStamp = m.updatedAt || null; S.remoteChanged = false; S.pendingHash = null; }
 function newDraft(typ, hash) {
   const y = today().slice(0, 4);
   const n = S.missions.filter(m => m.typ === typ && (m.datum || "").startsWith(y)).length + 1;
@@ -1279,7 +1279,8 @@ function vProtokoll() {
     else if (st === "pause") q += `<button class="go" data-act="resume">▶ Weiter mit neuem Akku · jetzt</button><button class="sm swap" data-act="pilswap">⇄ Pilotenwechsel</button><button class="stop" data-act="logland">■ Flug beenden</button>`;
     else q += `<button class="go" data-act="logstart">▶ Flug wieder aufnehmen</button>`;
     q += `<button class="sm swap" data-act="auftrag">Auftrag erhalten</button>`;
-    q += ["Lagemeldung an EvD/FüGr", "Funkverbindung gestört"].map(t => `<button class="sm" data-act="logquick" data-t="${esc(t)}">${esc(t)}</button>`).join("");
+    q += `<button class="sm" data-act="lage">Lagemeldung an EvD/FüGr</button>`;
+    q += ["Funkverbindung gestört"].map(t => `<button class="sm" data-act="logquick" data-t="${esc(t)}">${esc(t)}</button>`).join("");
   }
   return `<section class="sec"><div class="sec-h"><h2><span class="k">02</span>Einsatzprotokoll</h2><span class="muted" style="font-size:13px">${log.length} Einträge</span></div>
 
@@ -1289,6 +1290,8 @@ function vProtokoll() {
         <div class="pick">${AUFTRAG_MODI.map(m => `<button type="button" data-act="amodus" data-v="${esc(m)}" aria-pressed="${S.askAuftrag.modus === m}">${esc(m)}</button>`).join("")}</div>
         <label class="f"><span>Auftrag (frei)</span><input id="auftragText" placeholder="z. B. Waldstück nördlich Parkplatz absuchen, Person männlich, dunkle Jacke" value="${esc(S.askAuftrag.text || "")}"></label>
         <div class="row"><button class="go" data-act="doauftrag">Auftrag eintragen</button><button class="ghost" data-act="noauftrag">Abbrechen</button></div></div></div>` : ""}
+    ${S.askLage && !dis ? `<div class="askpil auftrag"><label class="f" style="flex:1 1 320px"><span>Lagemeldung an EvD/FüGr</span><input id="lageText" placeholder="z. B. Person im Waldstück nördl. Parkplatz gesichtet, Einsatzkräfte eingewiesen" value="${esc(S.askLage.text || "")}"></label>
+      <button class="go" data-act="dolage">Meldung eintragen</button><button class="ghost" data-act="nolage">Abbrechen</button></div>` : ""}
     ${S.askSwap && !dis && last ? `<div class="askpil"><label class="f"><span>Pilotenwechsel – neuer Pilot${st === "luft" ? " (Drohne bleibt in der Luft)" : " ab dem nächsten Start"}</span><select id="swapPilot">${pilotOptions(d, "", "– neuen Piloten wählen –")}</select></label>
       <button class="go" data-act="dopilswap">⇄ Wechsel · jetzt</button><button class="ghost" data-act="noswap">Abbrechen</button></div>` : ""}
     ${S.askPilot && !dis ? `<div class="askpil"><label class="f"><span>Wer fliegt? (Pilot)</span><select id="startPilot">${pilotOptions(d, S.askPilot.pre, "– Pilot wählen –")}</select></label>
@@ -1533,21 +1536,89 @@ function drawSketch(ctx, positions, W, H, pal) {
   ctx.fillStyle = pal.ink; ctx.font = `500 ${11 * unit}px ${pal.mono}`; ctx.textAlign = "left"; ctx.fillText(fmtM(step), bx + sb + 6 * unit, by);
   return M;
 }
+/* Karte für das PDF: Kacheln laden, Ausschnitt um alle Punkte, Punkte darüber zeichnen */
+function wpx(lat, lon, z) { const n = 256 * 2 ** z, s = Math.sin(lat * RAD); return { x: (lon + 180) / 360 * n, y: (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n }; }
+function loadTile(url) {
+  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 9000);
+  return fetch(url, { mode: "cors", signal: ctl.signal }).then(r => { if (!r.ok) throw new Error("http " + r.status); return r.blob(); })
+    .then(b => createImageBitmap(b)).finally(() => clearTimeout(tm));
+}
+async function mapRaster(positions, W, H, layer) {
+  const pts = (positions || []).filter(validPos); if (!pts.length) throw new Error("keine Punkte");
+  const T = TILES[layer]; const zMax = Math.min(18, T.max);
+  let z = zMax;
+  for (; z > 3; z--) { const ps = pts.map(p => wpx(+p.lat, +p.lon, z)); const xs = ps.map(o => o.x), ys = ps.map(o => o.y);
+    if (Math.max(...xs) - Math.min(...xs) <= W * 0.78 && Math.max(...ys) - Math.min(...ys) <= H * 0.72) break; }
+  if (pts.length === 1) z = Math.min(z, 17);
+  const ps = pts.map(p => ({ p, ...wpx(+p.lat, +p.lon, z) }));
+  const cx = (Math.min(...ps.map(o => o.x)) + Math.max(...ps.map(o => o.x))) / 2, cy = (Math.min(...ps.map(o => o.y)) + Math.max(...ps.map(o => o.y))) / 2;
+  const x0 = cx - W / 2, y0 = cy - H / 2;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H; const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#E9ECEA"; ctx.fillRect(0, 0, W, H);
+  const jobs = [];
+  for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + W) / 256); tx++) for (let ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + H) / 256); ty++)
+    jobs.push(loadTile(tileUrl(layer, z, tx, ty)).then(img => { ctx.drawImage(img, tx * 256 - x0, ty * 256 - y0); return 1; }, () => 0));
+  const ok = (await Promise.all(jobs)).reduce((a, b) => a + b, 0);
+  if (ok < jobs.length * 0.5) throw new Error("Kacheln nicht geladen");
+  const P = (lat, lon) => { const o = wpx(lat, lon, z); return [o.x - x0, o.y - y0]; };
+  const u = W / 1200;
+  // Suchgebiet, Linien vom Startplatz
+  const g = pts.filter(p => p.typ === "gebiet").map(p => P(+p.lat, +p.lon));
+  if (g.length >= 2) { ctx.beginPath(); g.forEach(([a, b], k) => k ? ctx.lineTo(a, b) : ctx.moveTo(a, b)); if (g.length >= 3) { ctx.closePath(); ctx.fillStyle = "rgba(154,100,0,.18)"; ctx.fill(); }
+    ctx.setLineDash([8 * u, 5 * u]); ctx.strokeStyle = PT.gebiet.c; ctx.lineWidth = 3 * u; ctx.stroke(); ctx.setLineDash([]); }
+  const st = pts.find(p => p.typ === "start");
+  if (st) pts.filter(p => p.typ === "ziel" || p.typ === "fund").forEach(p => {
+    const [a, b] = P(+st.lat, +st.lon), [c2, d2] = P(+p.lat, +p.lon);
+    ctx.setLineDash([5 * u, 5 * u]); ctx.strokeStyle = "#1A1E22"; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c2, d2); ctx.stroke(); ctx.setLineDash([]);
+    const t = fmtM(GEO.dist(st, p)); ctx.font = `600 ${14 * u}px Helvetica, Arial, sans-serif`; const tw = ctx.measureText(t).width;
+    ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fillRect((a + c2) / 2 - tw / 2 - 4 * u, (b + d2) / 2 - 12 * u, tw + 8 * u, 17 * u);
+    ctx.fillStyle = "#1A1E22"; ctx.textAlign = "center"; ctx.fillText(t, (a + c2) / 2, (b + d2) / 2); });
+  const r = 13 * u;
+  pts.forEach(p => {
+    const t = PT[p.typ] || PT.sonst; const [x, y] = P(+p.lat, +p.lon);
+    ctx.fillStyle = t.c; ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 2.5 * u; ctx.beginPath();
+    if (p.typ === "start") ctx.rect(x - r, y - r, 2 * r, 2 * r); else ctx.arc(x, y, p.typ === "gebiet" ? r * .75 : r, 0, 7);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#FFFFFF"; ctx.font = `700 ${(p.typ === "gebiet" ? 11 : 14) * u}px Helvetica, Arial, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(t.s, x, y + 1); ctx.textBaseline = "alphabetic";
+    if (p.label) { ctx.font = `600 ${14 * u}px Helvetica, Arial, sans-serif`; ctx.textAlign = "left"; const tw = ctx.measureText(p.label).width;
+      ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fillRect(x + r + 4 * u, y - 10 * u, tw + 8 * u, 19 * u); ctx.fillStyle = "#1A1E22"; ctx.fillText(p.label, x + r + 8 * u, y + 4 * u); }
+  });
+  // Nordpfeil, Maßstab, Quellenvermerk
+  const nx = W - 30 * u, ny = 20 * u; ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.fillRect(nx - 16 * u, ny - 6 * u, 32 * u, 52 * u);
+  ctx.fillStyle = "#1A1E22"; ctx.beginPath(); ctx.moveTo(nx, ny); ctx.lineTo(nx + 9 * u, ny + 24 * u); ctx.lineTo(nx, ny + 18 * u); ctx.lineTo(nx - 9 * u, ny + 24 * u); ctx.closePath(); ctx.fill();
+  ctx.font = `700 ${13 * u}px Helvetica, Arial, sans-serif`; ctx.textAlign = "center"; ctx.fillText("N", nx, ny + 40 * u);
+  const mpp = 156543.03392 * Math.cos(+pts[0].lat * RAD) / 2 ** z; const step = niceStep(mpp * 160 * u); const sb = step / mpp;
+  const bx = 16 * u, by = H - 18 * u; ctx.fillStyle = "rgba(255,255,255,.88)"; ctx.fillRect(bx - 8 * u, by - 22 * u, sb + 80 * u, 32 * u);
+  ctx.strokeStyle = "#1A1E22"; ctx.lineWidth = 2.5 * u; ctx.beginPath(); ctx.moveTo(bx, by - 7 * u); ctx.lineTo(bx, by); ctx.lineTo(bx + sb, by); ctx.lineTo(bx + sb, by - 7 * u); ctx.stroke();
+  ctx.fillStyle = "#1A1E22"; ctx.font = `500 ${13 * u}px Helvetica, Arial, sans-serif`; ctx.textAlign = "left"; ctx.fillText(fmtM(step), bx + sb + 8 * u, by);
+  ctx.font = `400 ${11 * u}px Helvetica, Arial, sans-serif`; const at = T.attr; const aw = ctx.measureText(at).width;
+  ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.fillRect(W - aw - 12 * u, H - 18 * u, aw + 12 * u, 18 * u); ctx.fillStyle = "#1A1E22"; ctx.textAlign = "right"; ctx.fillText(at, W - 6 * u, H - 5 * u);
+  return { data: cv.toDataURL("image/jpeg", 0.86), attr: T.attr, name: T.name };
+}
 function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 let sketchM = null;
 /* ----- Karte (Leaflet; Kartengrundlage basemap.de des BKG, wahlweise OpenStreetMap) ----- */
 const mapReady = () => typeof L !== "undefined" && !!L.map;
+const YR = new Date().getFullYear();
+const TILES = {
+  karte: { name: "Karte (basemap.de)", url: "https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_farbe/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png", max: 19,
+    attr: `© GeoBasis-DE / BKG (${YR}) CC BY 4.0` },
+  luftbild: { name: "Luftbild (LGL BW)", url: "https://owsproxy.lgl-bw.de/owsproxy/ows/WMTS_LGL-BW_ATKIS_DOP_20_C?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=DOP_20_C&STYLE=default&FORMAT=image/jpeg&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX=GoogleMapsCompatible:{z}&TILEROW={y}&TILECOL={x}", max: 20,
+    attr: `Luftbild: LGL-BW (${YR}) dl-de/by-2-0, www.lgl-bw.de` },
+  osm: { name: "OpenStreetMap", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", max: 19, attr: "© OpenStreetMap-Mitwirkende" },
+};
+const tileUrl = (k, z, x, y) => TILES[k].url.replace("{z}", z).replace("{x}", x).replace("{y}", y);
 const MAP_HOME = [48.0603, 8.4586];
 let LMAP = null;
 function ensureMap() {
   if (LMAP) return LMAP;
   const el = document.createElement("div"); el.className = "lmap";
   const map = L.map(el, { zoomControl: true }).setView(MAP_HOME, 13);
-  const bm = L.tileLayer("https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_farbe/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png",
-    { maxZoom: 19, attribution: "© GeoBasis-DE / BKG (" + new Date().getFullYear() + ") CC BY 4.0" });
-  const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap-Mitwirkende" });
-  bm.addTo(map);
-  L.control.layers({ "Karte (basemap.de)": bm, "OpenStreetMap": osm }, null, { position: "topright" }).addTo(map);
+  const base = {}; let cur = LS.get("fb.mapLayer", "karte"); if (!TILES[cur]) cur = "karte";
+  Object.entries(TILES).forEach(([k, t]) => { base[t.name] = L.tileLayer(t.url, { maxZoom: 20, maxNativeZoom: t.max, attribution: t.attr }); base[t.name]._k = k; });
+  base[TILES[cur].name].addTo(map); S.mapLayer = cur;
+  L.control.layers(base, null, { position: "topright" }).addTo(map);
+  map.on("baselayerchange", e => { S.mapLayer = e.layer._k || "karte"; LS.set("fb.mapLayer", S.mapLayer); });
   L.control.scale({ imperial: false, maxWidth: 140 }).addTo(map);
   map.attributionControl.setPrefix(false);
   const grp = L.layerGroup().addTo(map);
@@ -2026,6 +2097,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.id === "dunlockText") { e.preventDefault(); act("ddounlock", document.querySelector("[data-act=ddounlock]")); }
   if (e.key === "Enter" && e.target.id === "lockText") { e.preventDefault(); act("dolock", document.querySelector("[data-act=dolock]")); }
   if (e.key === "Enter" && e.target.id === "unlockText") { e.preventDefault(); act("dounlock", document.querySelector("[data-act=dounlock]")); }
+  if (e.key === "Enter" && e.target.id === "lageText") { e.preventDefault(); act("dolage", e.target); }
   if (e.key === "Enter" && e.target.id === "auftragText") { e.preventDefault(); act("doauftrag", e.target); }
   if (e.key === "Enter" && e.target.id === "logText") { e.preventDefault(); act("logadd", e.target); }
 });
@@ -2152,6 +2224,13 @@ function act(a, b) {
     case "auftrag": S.askAuftrag = { modus: "", text: "" }; S.askSwap = false; S.askPilot = null; render(); { const el = $("#auftragText"); if (el) el.focus(); } break;
     case "amodus": { const tx = $("#auftragText"); S.askAuftrag.text = tx ? tx.value : ""; S.askAuftrag.modus = S.askAuftrag.modus === b.dataset.v ? "" : b.dataset.v; render(); break; }
     case "noauftrag": S.askAuftrag = null; render(); break;
+    case "lage": S.askLage = { text: "" }; S.askAuftrag = null; S.askSwap = false; S.askPilot = null; render(); { const el = $("#lageText"); if (el) el.focus(); } break;
+    case "nolage": S.askLage = null; render(); break;
+    case "dolage": {
+      const tx = (($("#lageText") || {}).value || "").trim();
+      if (!tx) { toast("Bitte den Inhalt der Lagemeldung eintragen."); const el = $("#lageText"); if (el) el.focus(); return; }
+      S.askLage = null; logPush(`Meldung an EvD/FüGr: ${tx}`, "Lage", nowTime()); break;
+    }
     case "doauftrag": {
       const tx = ($("#auftragText") || {}).value || "", mo = S.askAuftrag.modus;
       if (!tx.trim() && !mo) { toast("Bitte Bildmodus wählen oder den Auftrag eintragen."); return; }
@@ -2446,11 +2525,18 @@ async function reportPDF() {
     table(c, ["Art", "Bezeichnung", "Dezimalgrad (WGS84)", "UTMREF", "Entf. Startplatz"],
       pos.map(p => [(PT[p.typ] || PT.sonst).l, p.label || "", `${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}`, GEO.toMGRS(+p.lat, +p.lon), s && p !== s ? fmtM(GEO.dist(s, p)) : "–"]),
       [30, 38, 40, 42, 24], { right: [4] });
-    const cv = document.createElement("canvas"); cv.width = 1600; cv.height = 900;
-    drawSketch(cv.getContext("2d"), m.positions, 1600, 900, { bg: "#FFFFFF", grid: "#DADFDC", muted: "#5B656D", ink: "#1A1E22", labelBg: "rgba(255,255,255,.88)", areaFill: "rgba(154,100,0,.14)", font: "Helvetica, Arial, sans-serif", mono: "Courier, monospace" });
-    const ih = P.CW * 900 / 1600; ensure(c, ih + 8);
-    d.setFont("helvetica", "normal"); d.setFontSize(7.5); d.setTextColor(...P.muted); d.text("LAGESKIZZE (NORDEN OBEN, RASTER IN METERN, NICHT MASSSTABSGETREU GEDRUCKT)", P.ML, c.y); c.y += 2;
-    d.addImage(cv.toDataURL("image/png"), "PNG", P.ML, c.y, P.CW, ih); d.setDrawColor(...P.line); d.rect(P.ML, c.y, P.CW, ih); c.y += ih + 5;
+    // Lagekarte mit Kartenhintergrund; ohne Netz/Freigabe der Kartendienste: Raster-Skizze
+    let img = null, fmt = "JPEG", cap = "";
+    const order = [S.mapLayer || LS.get("fb.mapLayer", "karte"), "karte", "osm"].filter((k, i, a) => TILES[k] && a.indexOf(k) === i);
+    for (const k of order) { try { const r = await mapRaster(m.positions, 1200, 675, k); img = r.data; cap = `LAGEKARTE · ${r.name.toUpperCase()} · NORDEN OBEN`; break; } catch (e) {} }
+    if (!img) {
+      const cv = document.createElement("canvas"); cv.width = 1600; cv.height = 900;
+      drawSketch(cv.getContext("2d"), m.positions, 1600, 900, { bg: "#FFFFFF", grid: "#DADFDC", muted: "#5B656D", ink: "#1A1E22", labelBg: "rgba(255,255,255,.88)", areaFill: "rgba(154,100,0,.14)", font: "Helvetica, Arial, sans-serif", mono: "Courier, monospace" });
+      img = cv.toDataURL("image/png"); fmt = "PNG"; cap = "LAGESKIZZE (NORDEN OBEN, RASTER IN METERN) – KARTE WAR BEIM ERSTELLEN NICHT ABRUFBAR";
+    }
+    const ih = P.CW * 675 / 1200; ensure(c, ih + 8);
+    d.setFont("helvetica", "normal"); d.setFontSize(7.5); d.setTextColor(...P.muted); d.text(cap, P.ML, c.y); c.y += 2;
+    d.addImage(img, fmt, P.ML, c.y, P.CW, ih); d.setDrawColor(...P.line); d.rect(P.ML, c.y, P.CW, ih); c.y += ih + 5;
   }
   if (m.luftraum) {
   sec(c, "Luftraum");
