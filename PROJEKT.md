@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 13.11.2026 · App-Version 2.6 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
+Stand: 14.11.2026 · App-Version 3.0 – Echtbetrieb (gesicherte Code-Stände: Zweige `release-v1.1`, `release-v2.0`, `release-v3.0`)
 
 ---
 
@@ -18,7 +18,11 @@ Web-App der **Drohnengruppe der Feuerwehr Villingen-Schwenningen** für Einsätz
 Läuft im Browser und wird auf Handy/Tablet „Zum Home-Bildschirm“ hinzugefügt. Funktioniert auch
 ohne Netz (Einträge werden auf dem Gerät gepuffert und später übertragen).
 
-Status: **Testphase**. Testdaten nur mit erfundenen Namen/Orten, bis Datenschutz geklärt ist
+Status: **Version 3.0 – Start mit leerer Datenbank** (14.11.2026). Beim Einspielen hat die Migration
+`1700002000_reset_v3.js` einmalig alle Testdaten gelöscht (Berichte, Protokolle, Fotos, Wartungsbuch,
+Pilotsperren, Mitglieder, Drohnen, Zugänge); nur die Einstellungen (`config`) blieben. Sicherung der
+gelöschten Testdaten als JSON auf der Render-Festplatte: `/pb/pb_data/sicherung_vor_v3_2026-11-14.json`.
+Danach Ersteinrichtung des Admins mit `SETUP_CODE`. Vorher: Testphase. Datenschutz noch zu klären
 (Hosting bei einer US-Firma mit Rechenzentrum Frankfurt). Späterer Umzug auf einen deutschen
 Server (z. B. mittwald) oder zur Stadt-IT ist vorgesehen.
 
@@ -206,4 +210,3 @@ Stadtlogo vor offizieller Nutzung mit der Stadt abstimmen.
 - Schnellknöpfe im Protokoll: Liste der Drohnengruppe steht noch aus.
 - Notfall-Wiederherstellung des Admin-Zugangs über den Einrichtungscode (angeboten, noch nicht entschieden).
 - Datenschutz/AV-Vertrag klären; Umzug auf deutschen Server (mittwald) oder Stadt-IT.
-- V2.1 nach Freigabe als `release-v2.1` sichern.
