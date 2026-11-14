@@ -834,7 +834,7 @@ function downloadFile(filename, data) {
 }
 
 /* ---------- Fotos (V2.0) ---------- */
-const APP_VERSION = "2.2";
+const APP_VERSION = "2.2.1";
 const QUELLE = { einsatzstelle: "Einsatzstelle", drohne: "Drohne" };
 const FotoQ = (() => {
   let dbp = null, flushing = false, items = [];
@@ -1218,7 +1218,7 @@ function vEdit() {
     ${inp("Ort / Adresse", "ort", { ph: "Straße, Ort" })}</div>
     ${inp("Anforderung durch", "anforderung", { options: [["", "– wählen –"], ...ANFORDERUNG.map(x => [x, x]), ...(d.anforderung && !ANFORDERUNG.includes(d.anforderung) ? [[d.anforderung, d.anforderung]] : [])], rr: true })}
     ${d.anforderung === "Sonstige" ? inp("Anforderung – wer?", "anforderungText", { ph: "z. B. Polizei, Nachbarwehr" }) : ""}
-    ${inp(U ? "Verantwortlich UAS" : "Einsatzleiter vor Ort", "einsatzleiter", { ph: "Name / Funkrufname" })}
+    ${inp(U ? "Verantwortlich UAS" : "Einsatzleiter vor Ort", "einsatzleiter", { cls: "w2", ph: "Vor- und Nachname" })}
     ${inp("Anbindung an", "anbindung", { options: [...ANBINDUNG, ...(d.anbindung && !ANBINDUNG.some(a => a[0] === d.anbindung) ? [[d.anbindung, ANB_LABEL[d.anbindung] || d.anbindung]] : [])] })}
   </div>
   <div class="wx">${WETTER.map(g => `<div class="wx-g"><span class="wx-l">${g.l}</span><div class="pick" role="group" aria-label="${g.l}">${g.o.map(o => `<button type="button" data-act="pick" data-b="wetter.${g.k}" data-v="${esc(o)}" aria-pressed="${(d.wetter || {})[g.k] === o}" ${dis}>${esc(o)}</button>`).join("")}</div></div>`).join("")}</div>

@@ -3,7 +3,7 @@
 Diese Datei hält alle fachlichen Entscheidungen und technischen Eckdaten fest, damit die Arbeit
 in einem neuen Chat ohne Vorwissen weitergehen kann. **Bei jeder Änderung an der App mitpflegen.**
 
-Stand: 13.11.2026 · App-Version 2.2 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
+Stand: 13.11.2026 · App-Version 2.2.1 (gesicherte Stände: Zweige `release-v1.1`, `release-v2.0`)
 
 ---
 
@@ -100,7 +100,7 @@ Protokoll wie ein **Funkbuch**: Das Tablet löscht nichts, Fehler werden mit „
 
 **Bericht – Aufbau**
 1. **Einsatz/Übung**: Art, Nr., Datum, Beginn/Ende, Stichwort + Ort/Adresse (breit, eigene Zeile),
-   darunter Anforderung durch, **Einsatzleiter vor Ort** (V2.2 aus „Weitere Angaben“ hierher), Anbindung an. Anforderung durch
+   darunter Anforderung durch, **Einsatzleiter vor Ort** (Freitext Name, breites Feld; V2.2 aus „Weitere Angaben“ hierher), Anbindung an. Anforderung durch
    (*Leitstelle SBK / EvD / Sonstige* + Freitext), Anbindung an (*Führungsgruppe / Eigenständiger
    Bildschirm / Direkt EvD / Sonstige Einsatzleitung*), **Wetter** zum Antippen (Wetter/Wind/Sicht –
    nur Übersicht, **nicht** im Protokoll), **„Über den Flug informiert“** zum Abhaken mit Uhrzeit
