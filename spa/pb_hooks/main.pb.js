@@ -26,3 +26,27 @@ routerAdd("POST", "/api/spa/setup", (e) => {
   $app.save(rec);
   return e.json(200, { ok: true });
 });
+
+// Familienkonten dürfen Einstellungen nicht ändern: Einstellungen, Name und Betriebsstatus
+// werden bei deren Speichern immer vom bisherigen Stand übernommen (auch gegen alte Gerätestände).
+onRecordUpdateRequest((e) => {
+  if (e.auth && e.auth.getString("role") === "admin") return e.next();
+  let neu = {}, alt = {};
+  try { neu = JSON.parse(e.record.getString("data") || "{}") || {}; } catch (err) { neu = {}; }
+  try { alt = JSON.parse(e.record.original().getString("data") || "{}") || {}; } catch (err) { alt = {}; }
+  const pools = neu.pools || {};
+  for (const k in pools) {
+    const o = (alt.pools || {})[k];
+    if (!o) continue;
+    pools[k].cfg = o.cfg; pools[k].name = o.name; pools[k].active = o.active;
+    if (Array.isArray(o.log) && Array.isArray(pools[k].log)) {
+      // Familienkonten dürfen keine Messungen löschen
+      const ids = {}; pools[k].log.forEach(m => { ids[m.id] = 1; });
+      o.log.forEach(m => { if (m && m.id && !ids[m.id]) pools[k].log.push(m); });
+      pools[k].log.sort((a, b) => (a.at < b.at ? -1 : 1));
+      pools[k].deleted = o.deleted || [];
+    }
+  }
+  e.record.set("data", neu);
+  return e.next();
+}, "spa_state");

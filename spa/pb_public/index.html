@@ -50,6 +50,7 @@ main{max-width:760px;margin:0 auto;padding:14px 14px 96px}
 .rec .amt{font-weight:700;color:var(--brand)}
 .small{font-size:13px;color:var(--mute)}
 label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
+fieldset:disabled input,fieldset:disabled select{opacity:.75}
 input,select,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 14px;border-radius:10px;border:0;background:var(--brand);color:#fff;font:inherit;font-weight:600;cursor:pointer}
@@ -321,10 +322,12 @@ async function flush(){
     let srv=null;
     try{ const r = await pb.collection('spa_state').getFirstListItem('key="main"'); recId=r.id; srv=r.data; }catch(e){ if(e.status!==404) throw e; }
     const merged = migrate(mergeState(srv, state));
-    if (recId) await pb.collection('spa_state').update(recId, {data:merged});
-    else { const r = await pb.collection('spa_state').create({key:'main', data:merged}); recId=r.id; }
-    const changed = JSON.stringify(merged)!==JSON.stringify(state);
-    state=merged; dirty=false; keepLocal(); setSync('✓ gespeichert');
+    let r;
+    if (recId) r = await pb.collection('spa_state').update(recId, {data:merged});
+    else { r = await pb.collection('spa_state').create({key:'main', data:merged}); recId=r.id; }
+    const fin = migrate(JSON.parse(JSON.stringify(r.data||merged))); // Stand, wie ihn der Server gespeichert hat
+    const changed = JSON.stringify(fin)!==JSON.stringify(state);
+    state=fin; dirty=false; keepLocal(); setSync('✓ gespeichert');
     if (changed) softRender();
   }catch(e){ setSync(navigator.onLine?'nicht gespeichert – neuer Versuch folgt':'offline – wird nachgeholt'); }
   saving=false;
@@ -507,7 +510,7 @@ function filterCard(p){
    <div class="grow"><b>${st[0]}</b> ${w.s!=='ok'?`<span class="tag ${w.s}">${w.s==='crit'?'ersetzen':'bald ersetzen'}</span>`:''}
     <div class="small">${f.since?`im Einsatz seit ${dstr(f.since)} (${fmt(w.age,1)} Mon.)`:'noch nicht benutzt'} · ${f.cleanings}× gereinigt${f.lastClean?` · zuletzt ${dstr(f.lastClean)}`:''} · ${f.uses||0}× eingesetzt</div>
     <div style="height:6px;background:var(--line);border-radius:3px;margin:6px 0"><div style="height:6px;width:${pct}%;border-radius:3px;background:var(--${w.s==='ok'?'ok':w.s})"></div></div>
-    <div class="seg">${f.status==='dirty'?`<button data-fclean="${f.n}">✓ Gereinigt</button>`:''}${f.status==='in'?`<button data-done="filter">Tauschen</button><button data-fcleanin="${f.n}">Eingebaut gereinigt</button>`:''}<button data-fnew="${f.n}">Durch neuen ersetzt</button><button data-fedit="${f.n}">✎ Korrigieren</button></div>
+    <div class="seg">${f.status==='dirty'?`<button data-fclean="${f.n}">✓ Gereinigt</button>`:''}${f.status==='in'?`<button data-done="filter">Tauschen</button><button data-fcleanin="${f.n}">Eingebaut gereinigt</button>`:''}<button data-fnew="${f.n}">Durch neuen ersetzt</button>${isAdmin()?`<button data-fedit="${f.n}">✎ Korrigieren</button>`:''}</div>
    </div></div>`}).join('')}
    <div class="hint">Verschleiß = Alter (max. ${c.filterLifeMonths} Monate) oder Reinigungen (max. ${c.filterMaxClean}), je nachdem was zuerst erreicht ist. Richtwerte, in den Einstellungen anpassbar.</div></div>`;
 }
@@ -549,12 +552,13 @@ function vTasks(){
 
 function vHistory(){
   const p=P(), L=[...p.log].reverse();
-  if (!L.length) return `<div class="card"><p class="small">Noch keine Messungen.</p></div>`;
+  const proto = p.doses.length?`<div class="card"><h2>Protokoll</h2><table>${[...p.doses].reverse().slice(0,60).map(d=>`<tr><td>${dtstr(d.at)}</td><td>${esc(d.what)}</td><td>${esc(d.amount)}</td><td class="small">${esc(d.by||'')}</td></tr>`).join('')}</table></div>`:'';
+  if (!L.length) return `<div class="card"><p class="small">Noch keine Messungen.</p></div>${proto}`;
   const cell=(v,s,d)=>`<td class="c-${s||''}">${v==null?'–':fmt(v,d)}</td>`;
   return `<div class="card chart"><h2>pH-Verlauf</h2>${chart(p.log,'ph',[p.cfg.phMin,p.cfg.phMax],6.4,8.4)}</div>
   <div class="card chart"><h2>UltraShock (ClO₂) mg/l</h2>${chart(p.log,'clo2',[p.cfg.usMin,p.cfg.usMax],0,null)}</div>
   <div class="card"><h2>Alle Messungen</h2><div style="overflow-x:auto"><table><tr><th>Datum</th><th>pH</th><th>ClO₂</th><th>TA</th><th>°dH</th><th>Wer</th><th></th></tr>
-  ${L.map(m=>{const e=evaluate(m,p);const s=k=>e.params.find(x=>x.k===k)?.s;return `<tr>${'<td>'+dtstr(m.at)+'</td>'}${cell(m.ph,s('ph'),2)}${cell(m.clo2,s('clo2'),2)}${cell(m.ta,s('ta'),0)}${cell(m.th!=null?dHfromMg(m.th):null,s('th'),1)}<td class="small">${esc(m.by||'')}</td><td><button class="btn sm ghost" data-del="${m.id}">✕</button></td></tr>`}).join('')}
+  ${L.map(m=>{const e=evaluate(m,p);const s=k=>e.params.find(x=>x.k===k)?.s;return `<tr>${'<td>'+dtstr(m.at)+'</td>'}${cell(m.ph,s('ph'),2)}${cell(m.clo2,s('clo2'),2)}${cell(m.ta,s('ta'),0)}${cell(m.th!=null?dHfromMg(m.th):null,s('th'),1)}<td class="small">${esc(m.by||'')}</td><td>${isAdmin()?`<button class="btn sm ghost" data-del="${m.id}">✕</button>`:''}</td></tr>`}).join('')}
   </table></div></div>
   ${p.doses.length?`<div class="card"><h2>Protokoll</h2><table>${[...p.doses].reverse().slice(0,60).map(d=>`<tr><td>${dtstr(d.at)}</td><td>${esc(d.what)}</td><td>${esc(d.amount)}</td><td class="small">${esc(d.by||'')}</td></tr>`).join('')}</table></div>`:''}`;
 }
@@ -582,7 +586,8 @@ function chart(log, key, band, yMin, yMax){
 
 function vSettings(){
   const p=P(), c=p.cfg, num=(n,v,step='any')=>`<input name="${n}" type="number" step="${step}" value="${v??''}">`;
-  return `<div class="card"><h2>${esc(p.name)}</h2><form id="sform">
+  const ro = !isAdmin();
+  return `${ro?`<div class="banner"><b>Nur ansehen:</b> Einstellungen kann nur der Admin ändern.</div>`:''}<div class="card"><h2>${esc(p.name)}</h2><form id="sform"><fieldset ${ro?'disabled':''} style="border:0;padding:0;margin:0">
    <label>Bezeichnung</label><input name="name" value="${esc(p.name)}">
    <label><input type="checkbox" name="active" style="width:auto" ${p.active?'checked':''}> In Betrieb</label>
    <label>Wasservolumen (Liter)</label>${num('vol',c.vol,'10')}
@@ -604,8 +609,8 @@ function vSettings(){
    <label>Anzahl Filter</label>${num('filterCount',p.filters.length,'1')}
    <h3>Intervalle (Tage)</h3>
    ${TASKS.map(t=>`<div class="row" style="align-items:end"><div><label>${t.name}</label></div><div>${num('int_'+t.k,c.intervals[t.k],'1')}</div></div>`).join('')}
-   <button class="btn full" type="submit">Speichern</button>
-  </form></div>
+   ${ro?'':'<button class="btn full" type="submit">Speichern</button>'}
+  </fieldset></form></div>
   <div class="card"><h2>Mein Zugang</h2><p class="small" style="margin-top:0">Angemeldet als <b>${esc(getWho())}</b> (${esc(me()?.username||'')})${isAdmin()?' · Admin':''}</p>
    <button class="btn ghost" id="logoutBtn">Abmelden</button></div>
   ${isAdmin()?`<div class="card"><h2>Zugänge der Familie</h2><div id="ulist" class="small">lädt …</div>
@@ -752,7 +757,7 @@ const after = {
   },
   settings(){
     document.getElementById('sform').addEventListener('submit',e=>{
-      e.preventDefault(); const f=new FormData(e.target), p=P(), c=p.cfg;
+      e.preventDefault(); if (!isAdmin()) return; const f=new FormData(e.target), p=P(), c=p.cfg;
       const n=k=>{const v=f.get(k); return v===''||v==null?null:Number(v);};
       const oldDef = defaultDoses(p.type,c.vol);
       p.name = String(f.get('name')||p.name); p.active = !!f.get('active');
@@ -804,6 +809,7 @@ document.addEventListener('click',e=>{
   if (t.dataset.fclean){ const f=F(t.dataset.fclean); f.cleanings++; f.lastClean=now; f.status='spare'; logDose(p0, `Filter ${f.n} gereinigt`, `${f.cleanings}. Reinigung`); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Reinigung`); return; }
   if (t.dataset.fcleanin){ const f=F(t.dataset.fcleanin); f.cleanings++; f.lastClean=now; if(!f.since) f.since=now; p0.tasks.filter=now; logDose(p0, `Filter ${f.n} gereinigt (eingebaut)`, `${f.cleanings}. Reinigung`); closeModal(); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Reinigung`); return; }
   if (t.dataset.fnew){ const f=F(t.dataset.fnew); f.since=f.status==='in'?now:null; f.cleanings=0; f.lastClean=null; f.uses=f.status==='in'?1:0; if(f.status==='dirty') f.status='spare'; logDose(p0, `Filter ${f.n} durch neuen ersetzt`); save(); render(); toast(`Filter ${f.n} neu`); return; }
+  if ((t.dataset.fedit||t.dataset.fsave) && !isAdmin()) return;
   if (t.dataset.fedit){ openFilterEdit(t.dataset.fedit); return; }
   if (t.dataset.fsave){ const f=F(t.dataset.fsave), v=id=>document.getElementById(id).value, toIso=x=>x?new Date(x+'T12:00').toISOString():null;
     const st=v('fe_status'); if (st==='in' && f.status!=='in'){ const o=p0.filters.find(x=>x.status==='in'); if(o) o.status='dirty'; }
@@ -826,7 +832,7 @@ document.addEventListener('click',e=>{
     logDose(p, `UltraShock nach Bad (${n} Pers.)`, `${ml} ml`);
     save(); render(); toast(`Jetzt ${ml} ml UltraShock zugeben`);
   }
-  else if (t.dataset.del){ const p=P(); p.log=p.log.filter(m=>m.id!==t.dataset.del); p.deleted=[...(p.deleted||[]),t.dataset.del]; save(); render(); }
+  else if (t.dataset.del && isAdmin()){ const p=P(); p.log=p.log.filter(m=>m.id!==t.dataset.del); p.deleted=[...(p.deleted||[]),t.dataset.del]; save(); render(); }
 });
 
 initDb();
