@@ -299,6 +299,13 @@ function mergeState(srv, loc){
   }
   return out;
 }
+let renderPending=false;
+function softRender(){ // bei Daten von anderen Geräten nicht neu aufbauen, solange ein Eingabefeld offen ist
+  const a=document.activeElement;
+  if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)){ if(!renderPending){ renderPending=true; a.addEventListener('blur',()=>{ renderPending=false; setTimeout(render,0); },{once:true}); } return; }
+  if (document.querySelector('#modal .modal')) return;
+  render();
+}
 function setSync(t){ const el=document.getElementById('sync'); if(el) el.textContent=t; }
 function keepLocal(){ try{ localStorage.setItem('spa-state', JSON.stringify(state)); localStorage.setItem('spa-dirty', dirty?'1':''); }catch(e){} }
 
@@ -318,7 +325,7 @@ async function flush(){
     else { const r = await pb.collection('spa_state').create({key:'main', data:merged}); recId=r.id; }
     const changed = JSON.stringify(merged)!==JSON.stringify(state);
     state=merged; dirty=false; keepLocal(); setSync('✓ gespeichert');
-    if (changed) render();
+    if (changed) softRender();
   }catch(e){ setSync(navigator.onLine?'nicht gespeichert – neuer Versuch folgt':'offline – wird nachgeholt'); }
   saving=false;
   if (pendingSave){ pendingSave=false; flush(); }
@@ -331,7 +338,7 @@ async function loadServer(){
   try{
     const r = await pb.collection('spa_state').getFirstListItem('key="main"'); recId=r.id;
     state = migrate(dirty ? mergeState(r.data, state) : JSON.parse(JSON.stringify(r.data)));
-    keepLocal(); render(); setSync('✓ aktuell');
+    keepLocal(); softRender(); setSync('✓ aktuell');
     if (dirty) flush();
   }catch(e){
     if (e.status===404){ dirty=true; flush(); } else setSync('offline – zeigt letzten Stand');
@@ -339,7 +346,7 @@ async function loadServer(){
   try{
     await pb.collection('spa_state').subscribe('*', ev=>{
       if (ev.action==='delete' || saving || dirty) return;
-      if (JSON.stringify(ev.record.data)!==JSON.stringify(state)){ state=migrate(JSON.parse(JSON.stringify(ev.record.data))); recId=ev.record.id; keepLocal(); if(!document.activeElement || !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) render(); }
+      if (JSON.stringify(ev.record.data)!==JSON.stringify(state)){ state=migrate(JSON.parse(JSON.stringify(ev.record.data))); recId=ev.record.id; keepLocal(); softRender(); }
     });
   }catch(e){}
 }
@@ -500,8 +507,7 @@ function filterCard(p){
    <div class="grow"><b>${st[0]}</b> ${w.s!=='ok'?`<span class="tag ${w.s}">${w.s==='crit'?'ersetzen':'bald ersetzen'}</span>`:''}
     <div class="small">${f.since?`im Einsatz seit ${dstr(f.since)} (${fmt(w.age,1)} Mon.)`:'noch nicht benutzt'} · ${f.cleanings}× gereinigt${f.lastClean?` · zuletzt ${dstr(f.lastClean)}`:''} · ${f.uses||0}× eingesetzt</div>
     <div style="height:6px;background:var(--line);border-radius:3px;margin:6px 0"><div style="height:6px;width:${pct}%;border-radius:3px;background:var(--${w.s==='ok'?'ok':w.s})"></div></div>
-    ${!f.since?`<div class="row" style="align-items:center;margin-bottom:6px"><span class="small">Erstmals benutzt am:</span><input type="date" data-fsince="${f.n}"></div>`:''}
-    <div class="seg">${f.status==='dirty'?`<button data-fclean="${f.n}">✓ Gereinigt</button>`:''}${f.status==='in'?`<button data-done="filter">Tauschen</button><button data-fcleanin="${f.n}">Eingebaut gereinigt</button>`:''}<button data-fnew="${f.n}">Durch neuen ersetzt</button></div>
+    <div class="seg">${f.status==='dirty'?`<button data-fclean="${f.n}">✓ Gereinigt</button>`:''}${f.status==='in'?`<button data-done="filter">Tauschen</button><button data-fcleanin="${f.n}">Eingebaut gereinigt</button>`:''}<button data-fnew="${f.n}">Durch neuen ersetzt</button><button data-fedit="${f.n}">✎ Korrigieren</button></div>
    </div></div>`}).join('')}
    <div class="hint">Verschleiß = Alter (max. ${c.filterLifeMonths} Monate) oder Reinigungen (max. ${c.filterMaxClean}), je nachdem was zuerst erreicht ist. Richtwerte, in den Einstellungen anpassbar.</div></div>`;
 }
@@ -513,6 +519,17 @@ function openSwap(){
    ${opts.map(f=>`<button class="btn full ${f.status==='spare'?'':'sec'}" data-swapin="${f.n}">Filter ${f.n} einsetzen <span style="font-weight:400">(${FSTAT[f.status][0]})</span></button>`).join('')}
    ${inF?`<button class="btn full ghost" data-fcleanin="${inF.n}">Nicht getauscht – Filter ${inF.n} nur gereinigt</button>`:''}
    <button class="btn full ghost" data-close="1">Abbrechen</button></div></div>`;
+}
+function openFilterEdit(n){
+  const f=P().filters.find(x=>x.n===+n), d=iso=>iso?new Date(iso).toISOString().slice(0,10):'';
+  document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card"><h2>Filter ${f.n} korrigieren</h2>
+   <label>Im Einsatz seit (erster Einbau)</label><input type="date" id="fe_since" value="${d(f.since)}">
+   <div class="hint">Leer lassen, wenn der Filter noch nie benutzt wurde.</div>
+   <div class="row"><div><label>Anzahl Reinigungen</label><input type="number" id="fe_clean" min="0" step="1" value="${f.cleanings}"></div>
+   <div><label>Zuletzt gereinigt</label><input type="date" id="fe_last" value="${d(f.lastClean)}"></div></div>
+   <label>Zustand</label><select id="fe_status">${Object.entries(FSTAT).map(([k,v])=>`<option value="${k}" ${f.status===k?'selected':''}>${v[0]}</option>`).join('')}</select>
+   <div class="hint">Wird ein anderer Filter auf „eingebaut“ gesetzt, kommt der bisher eingebaute auf „muss gereinigt werden“.</div>
+   <button class="btn full" data-fsave="${f.n}">Speichern</button><button class="btn full ghost" data-close="1">Abbrechen</button></div></div>`;
 }
 function closeModal(){ document.getElementById('modal').innerHTML=''; }
 
@@ -711,7 +728,7 @@ const after = {
     });
   },
   tasks(){
-    document.querySelectorAll('[data-fsince]').forEach(inp=>inp.addEventListener('change',()=>{ if(!inp.value) return; const f=P().filters.find(x=>x.n===+inp.dataset.fsince); f.since=new Date(inp.value+'T12:00').toISOString(); if(!f.uses) f.uses=1; save(); render(); }));
+
     document.getElementById('fillBtn').onclick=()=>{
       const d=document.getElementById('fillDate').value; if(!d) return;
       const p=P(); p.filledAt=new Date(d+'T08:00').toISOString(); p.tasks.change=p.filledAt;
@@ -775,7 +792,7 @@ const after = {
 };
 
 document.addEventListener('click',e=>{
-  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew]'); if(!t) return;
+  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave]'); if(!t) return;
   const p0=P(), F=n=>p0.filters.find(f=>f.n===+n), now=new Date().toISOString();
   if (t.dataset.close!==undefined){ if(e.target===t || t.tagName==='BUTTON') closeModal(); return; }
   if (t.dataset.wgo){ wiz.step=Math.max(0,Math.min(6,wiz.step+ +t.dataset.wgo)); if(wiz.step===5&&!wiz.ev) wiz.step=4; render(); window.scrollTo(0,0); return; }
@@ -787,6 +804,11 @@ document.addEventListener('click',e=>{
   if (t.dataset.fclean){ const f=F(t.dataset.fclean); f.cleanings++; f.lastClean=now; f.status='spare'; logDose(p0, `Filter ${f.n} gereinigt`, `${f.cleanings}. Reinigung`); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Reinigung`); return; }
   if (t.dataset.fcleanin){ const f=F(t.dataset.fcleanin); f.cleanings++; f.lastClean=now; if(!f.since) f.since=now; p0.tasks.filter=now; logDose(p0, `Filter ${f.n} gereinigt (eingebaut)`, `${f.cleanings}. Reinigung`); closeModal(); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Reinigung`); return; }
   if (t.dataset.fnew){ const f=F(t.dataset.fnew); f.since=f.status==='in'?now:null; f.cleanings=0; f.lastClean=null; f.uses=f.status==='in'?1:0; if(f.status==='dirty') f.status='spare'; logDose(p0, `Filter ${f.n} durch neuen ersetzt`); save(); render(); toast(`Filter ${f.n} neu`); return; }
+  if (t.dataset.fedit){ openFilterEdit(t.dataset.fedit); return; }
+  if (t.dataset.fsave){ const f=F(t.dataset.fsave), v=id=>document.getElementById(id).value, toIso=x=>x?new Date(x+'T12:00').toISOString():null;
+    const st=v('fe_status'); if (st==='in' && f.status!=='in'){ const o=p0.filters.find(x=>x.status==='in'); if(o) o.status='dirty'; }
+    f.since=toIso(v('fe_since')); f.lastClean=toIso(v('fe_last')); f.cleanings=Math.max(0,parseInt(v('fe_clean'))||0); f.status=st; if(f.since&&!f.uses) f.uses=1;
+    logDose(p0, `Filter ${f.n} korrigiert`); closeModal(); save(); render(); toast('Gespeichert'); return; }
   if (t.dataset.done==='filter' && p0.filters?.length){ openSwap(); return; }
   if (t.dataset.view){ e.preventDefault(); view=t.dataset.view; render(); window.scrollTo(0,0); }
   else if (t.dataset.pool){ cur=t.dataset.pool; render(); }
