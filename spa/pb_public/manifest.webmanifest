@@ -1,0 +1,16 @@
+{
+  "name": "Spa-Wasserpflege",
+  "short_name": "Spa-Pflege",
+  "description": "Wasserwerte, Dosierung und Filter für Whirlpool und Swim-Spa",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b6e99",
+  "theme_color": "#0b6e99",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

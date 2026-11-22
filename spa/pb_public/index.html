@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spa-Wasserpflege</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b6e99">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Spa-Pflege">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<script src="vendor/pocketbase.umd.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f3f7fa;--card:#fff;--ink:#0f2433;--mute:#5d7282;--line:#dde6ec;
+  --brand:#0b6e99;--brand2:#e3f2f9;
+  --ok:#1f8a4c;--okbg:#e5f5ec;--warn:#b26a00;--warnbg:#fff3df;--crit:#c0362c;--critbg:#fde8e6;
+  --r:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0d1820;--card:#15242f;--ink:#e6eef3;--mute:#93a7b5;--line:#25384a;--brand:#4fb3df;--brand2:#173546;
+  --ok:#4cc27e;--okbg:#143326;--warn:#f0a83a;--warnbg:#3a2c12;--crit:#ff6b5e;--critbg:#3d1a17;}
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 Inter,system-ui,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 16px 8px;border-bottom:1px solid var(--line)}
+h1{font-size:18px;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+h2{font-size:16px;margin:0 0 10px}
+h3{font-size:14px;margin:14px 0 6px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+main{max-width:760px;margin:0 auto;padding:14px 14px 96px}
+.pools{display:flex;gap:6px}
+.pools button{flex:1;padding:9px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-weight:600}
+.pools button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.status{display:flex;align-items:center;gap:12px}
+.dot{width:14px;height:14px;border-radius:50%;flex:none}
+.ok .dot,.dot.ok{background:var(--ok)}.warn .dot,.dot.warn{background:var(--warn)}.crit .dot,.dot.crit{background:var(--crit)}.none .dot,.dot.none{background:var(--line)}
+.status.ok{background:var(--okbg)}.status.warn{background:var(--warnbg)}.status.crit{background:var(--critbg)}
+.status b{font-size:16px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.tile{border-radius:12px;padding:10px;border:1px solid var(--line)}
+.tile.ok{background:var(--okbg);border-color:transparent}.tile.warn{background:var(--warnbg);border-color:transparent}.tile.crit{background:var(--critbg);border-color:transparent}
+.tile .l{font-size:12px;color:var(--mute)}.tile .v{font-size:20px;font-weight:700}.tile .t{font-size:12px}
+.rec{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.rec:first-child{border-top:0}
+.rec .dot{margin-top:4px}
+.rec .amt{font-weight:700;color:var(--brand)}
+.small{font-size:13px;color:var(--mute)}
+label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
+input,select,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 14px;border-radius:10px;border:0;background:var(--brand);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+.btn.sec{background:var(--brand2);color:var(--brand)}
+.btn.ghost{background:transparent;color:var(--mute);border:1px solid var(--line)}
+.btn.full{width:100%;margin-top:14px}
+.btn.sm{padding:6px 10px;font-size:13px}
+.task{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.task:first-child{border-top:0}
+.task .grow{flex:1}
+.tag{font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px}
+.tag.ok{background:var(--okbg);color:var(--ok)}.tag.warn{background:var(--warnbg);color:var(--warn)}.tag.crit{background:var(--critbg);color:var(--crit)}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;max-width:150px;background:none;border:0;color:var(--mute);font:inherit;font-size:12px;padding:8px 4px 10px;display:flex;flex-direction:column;align-items:center;gap:2px}
+nav button svg{width:22px;height:22px}
+nav button.on{color:var(--brand);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+td.c-ok{color:var(--ok)}td.c-warn{color:var(--warn)}td.c-crit{color:var(--crit);font-weight:600}
+.banner{background:var(--brand2);border-radius:12px;padding:12px;margin-bottom:12px;font-size:14px}
+.banner b{color:var(--brand)}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg button{padding:8px 12px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-size:14px}
+.seg button:disabled{opacity:.4}
+.seg button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.sync{font-size:12px;color:var(--mute);margin-left:auto;font-weight:400}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.modal .card{width:100%;max-width:520px;margin:0;border-radius:18px 18px 0 0;padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+.chart svg{width:100%;height:auto}
+.hint{font-size:12px;color:var(--mute);margin-top:4px}
+.hidden{display:none}
+.toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:99px;font-size:14px;z-index:30}
+</style>
+</head>
+<body>
+<header>
+  <h1>💧 Spa-Wasserpflege <span class="sync" id="sync">lädt …</span></h1>
+  <div class="pools" id="pools"></div>
+</header>
+<main id="main"></main>
+<nav id="nav"></nav>
+<div id="modal"></div>
+
+<script>
+/* ================= Fachlogik =================
+   Quelle Dosierung/Ablauf: SpaBalancer-Wasserpflegeanleitungen (Hartschalen-Whirlpools / Swim Spas).
+   Werte sind Voreinstellungen – maßgeblich ist immer das Produktetikett. */
+
+const DAY = 864e5;
+const fmt = (n, d=0) => (n==null||isNaN(n)) ? '–' : Number(n).toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
+const round5 = ml => Math.max(5, Math.round(ml/5)*5);
+const dHfromMg = mg => mg/17.85;
+
+function interp(points, v){
+  const p = [...points].sort((a,b)=>a[0]-b[0]);
+  if (v <= p[0][0]) { const [a,b]=[p[0],p[1]]; return a[1]+(v-a[0])*(b[1]-a[1])/(b[0]-a[0]); }
+  for (let i=1;i<p.length;i++) if (v<=p[i][0]) { const a=p[i-1],b=p[i]; return a[1]+(v-a[0])*(b[1]-a[1])/(b[0]-a[0]); }
+  const a=p[p.length-2],b=p[p.length-1]; return b[1]+(v-b[0])*(b[1]-a[1])/(b[0]-a[0]);
+}
+// SpaBalancer-Tabelle Hartschalen-Whirlpool (wöchentlich)
+const WP_US = [[500,30],[1000,40],[1300,50],[1600,60]];
+const WP_BASIC = [[500,40],[1000,50],[1300,60],[1600,70]];
+
+function defaultDoses(type, vol){
+  if (type==='whirlpool') return { usWeek: round5(interp(WP_US,vol)), basicWeek: round5(interp(WP_BASIC,vol)) };
+  // Swim-Spa: UltraShock 80–200 ml bei 4.000–10.000 l (20 ml je 1.000 l); Basic-Tabelle nicht lesbar -> leer lassen
+  return { usWeek: round5(vol/1000*20), basicWeek: null };
+}
+
+const TASKS = [
+  {k:'ph',     name:'pH-Wert messen',                     days:7,   start:1,  note:'Im Regelbetrieb 1× pro Woche, nach Neubefüllung 1–2× täglich.'},
+  {k:'weekly', name:'Wochendosis Basic + UltraShock',     days:7,   note:'Zwischen UltraShock und Basic mindestens 3 Stunden Abstand.'},
+  {k:'filter', name:'Filter tauschen & reinigen',         days:14,  start:7,  note:'Sauberen Filter einsetzen, den alten mit Filterbrause und Filterreiniger säubern. Alle 1–2 Wochen, nach Neubefüllung 1–2× pro Woche.'},
+  {k:'soft',   name:'SoftWater (monatlich)',              days:30,  note:'50 ml je 1.000 l, beim Nachfüllen anteilig.'},
+  {k:'cover',  name:'Abdeckung reinigen / prüfen',        days:30,  note:'Unterseite auf muffigen Geruch prüfen.'},
+  {k:'change', name:'Wasserwechsel + Grundreinigung',     days:182, note:'Idealerweise alle 6, spätestens alle 12 Monate. Vorher Grundreinigung mit SystemFlush, danach Neubefüllung starten.'},
+];
+
+function defaultPool(type){
+  const vol = type==='whirlpool'?1325:8000;
+  return {
+    type, active: type==='whirlpool',
+    name: type==='whirlpool'?'Cameo':'Swim-Spa',
+    cfg: {
+      vol, volConfirmed: type==='whirlpool',
+      filterLifeMonths:12, filterMaxClean:25,
+      ...defaultDoses(type, vol), dosesCustom:false,
+      shockPer1000: 50,          // Schockbehandlung ml je 1.000 l (8 h einwirken)
+      phMinusGper01: 10,         // g pH-Minus je 0,1 pH je 1.000 l (Etikett!)
+      phPlusGper01: 10,
+      phMin:6.8, phMax:7.8, phCrit:8.0, phCritLow:6.5,
+      usMin:0.3, usMax:5,
+      taMin:80, taMax:120,
+      hardMax:12,
+      intervals: Object.fromEntries(TASKS.map(t=>[t.k,t.days])),
+    },
+    filledAt:null,
+    tasks:{},          // k -> ISO zuletzt erledigt
+    filters: type==='whirlpool' ? [1,2,3].map(n=>({n, status:n===1?'in':'spare', since:null, cleanings:0, lastClean:null, uses:0})) : [],
+    log:[],            // Messungen
+    baths:[],          // {at, persons}
+    doses:[],          // {at, what, amount}
+  };
+}
+
+function startPhase(pool, now=Date.now()){
+  if(!pool.filledAt) return null;
+  const d = Math.floor((now - new Date(pool.filledAt).getTime())/DAY)+1;
+  return d>=1 && d<=14 ? d : null;
+}
+
+function rate(val, okLo, okHi, critLo, critHi){
+  if (val==null||isNaN(val)) return null;
+  if ((critLo!=null && val<critLo) || (critHi!=null && val>critHi)) return 'crit';
+  if ((okLo!=null && val<okLo) || (okHi!=null && val>okHi)) return 'warn';
+  return 'ok';
+}
+const worst = arr => arr.includes('crit')?'crit':arr.includes('warn')?'warn':arr.some(Boolean)?'ok':'none';
+
+function evaluate(m, pool, now=Date.now()){
+  const c = pool.cfg, V = c.vol/1000, phase = startPhase(pool, now);
+  const P = [], R = [];
+  // pH
+  if (m.ph!=null){
+    const s = rate(m.ph, c.phMin, c.phMax, c.phCritLow, c.phCrit-0.0001);
+    P.push({k:'ph', l:'pH-Wert', v:fmt(m.ph,2), s, t: s==='ok'?`Ziel ${fmt(c.phMin,1)}–${fmt(c.phMax,1)}` : m.ph>c.phMax ? (m.ph>=c.phCrit?'zu hoch – Kalkausfall möglich':'leicht zu hoch') : 'zu niedrig'});
+    if (m.ph>c.phMax){
+      const g = Math.max(5, Math.round((m.ph-7.3)/0.1*c.phMinusGper01*V));
+      R.push({s:m.ph>=c.phCrit?'crit':'warn', t:'pH-Minus zugeben', a:`ca. ${fmt(g)} g`, d:`Zielwert ca. 7,3. Erst die Hälfte (${fmt(Math.round(g/2))} g) bei laufenden Pumpen zugeben, nach 2 Stunden nachmessen und den Rest aus der Differenz abschätzen.`});
+    } else if (m.ph<c.phMin){
+      const g = Math.max(5, Math.round((7.2-m.ph)/0.1*c.phPlusGper01*V));
+      R.push({s:m.ph<c.phCritLow?'crit':'warn', t:'pH-Plus zugeben', a:`ca. ${fmt(g)} g`, d:'Zielwert ca. 7,2. Erst die Hälfte zugeben, nach 2 Stunden nachmessen.'});
+    }
+  }
+  // UltraShock = Chlordioxid (PoolLab: Parameter „Chlordioxid“)
+  const cloudy = m.look==='leicht'||m.look==='trüb', smell = m.smell==='ja', green = m.look==='grün';
+  if (m.clo2!=null){
+    let s='ok', t='Desinfektion im Rahmen';
+    if (m.clo2>c.usMax){ s='crit'; t=`über ${fmt(c.usMax)} mg/l – nicht baden`; }
+    else if (m.clo2<c.usMin && (phase || cloudy || smell)){ s = m.clo2<0.1?'crit':'warn'; t='zu niedrig'; }
+    else if (m.clo2<c.usMin){ s='warn'; t=`unter ${fmt(c.usMin,1)} mg/l`; }
+    P.push({k:'clo2', l:'UltraShock (ClO₂)', v:fmt(m.clo2,2)+' mg/l', s, t});
+    if (m.clo2>c.usMax) R.push({s:'crit', t:'Nicht baden', a:'', d:'Hautreizungen möglich. Abdeckung offen lassen, Pumpen laufen lassen und warten, bis der Wert unter 5 mg/l liegt.'});
+  }
+  const usLow = m.clo2!=null && m.clo2<c.usMin;
+  if (cloudy || smell || green || (usLow && m.clo2<0.1)){
+    const ml = round5(c.shockPer1000*V);
+    R.push({s:'crit', t:'Schockbehandlung mit UltraShock', a:`${fmt(ml)} ml`, d:`${fmt(c.shockPer1000)} ml je 1.000 l bei laufenden Pumpen, mindestens 8 Stunden einwirken lassen. Baden erst, wenn der ClO₂-Wert unter 5 mg/l liegt. Filter reinigen. Bei Bedarf am Folgetag wiederholen.`});
+  } else if (usLow){
+    R.push({s:'warn', t:'UltraShock nachdosieren', a:`${fmt(c.usWeek)} ml`, d:`Ziel: mindestens ${fmt(c.usMin,1)} mg/l, gemessen am Tag nach der Zugabe${phase?' (wichtig in den ersten 2 Wochen)':''}.`});
+  }
+  if (cloudy) P.push({k:'look', l:'Wasserbild', v:m.look==='trüb'?'trüb':'leicht trüb', s:m.look==='trüb'?'crit':'warn', t:'Filter & UltraShock prüfen'});
+  if (green) P.push({k:'look', l:'Wasserbild', v:'grünlich', s:'warn', t:'Filter & Dosierung prüfen'});
+  if (m.look==='klar') P.push({k:'look', l:'Wasserbild', v:'klar', s:'ok', t:''});
+  if (smell) P.push({k:'smell', l:'Geruch', v:'riecht', s:'warn', t:'Dosierung erhöhen'});
+  if (m.foam==='ja'){
+    P.push({k:'foam', l:'Schaum', v:'ja', s:'warn', t:''});
+    R.push({s:'warn', t:'Schaum', a:'', d:'Filter reinigen, vor dem Baden duschen (Kosmetik/Waschmittelreste). Bleibt der Schaum trotz Pflege, ist ein Wasserwechsel fällig.'});
+  }
+  // Alkalinität
+  if (m.ta!=null){
+    const s = rate(m.ta, c.taMin, c.taMax, 50, 180);
+    P.push({k:'ta', l:'Alkalinität', v:fmt(m.ta)+' mg/l', s, t:s==='ok'?`Ziel ${c.taMin}–${c.taMax}`:(m.ta<c.taMin?'zu niedrig – pH schwankt':'zu hoch – pH steigt')});
+    if (m.ta<c.taMin) R.push({s:'warn', t:'Alkalinität anheben', a:'', d:'Mit Alkalinitäts-Plus nach Etikett. Danach pH erneut prüfen.'});
+    if (m.ta>c.taMax) R.push({s:'warn', t:'Alkalinität senken', a:'', d:'Mit pH-Minus in kleinen Schritten senken, das senkt auch die Alkalinität.'});
+  }
+  // Härte
+  if (m.th!=null){
+    const dh = dHfromMg(m.th), s = dh>c.hardMax+6?'crit':dh>c.hardMax?'warn':'ok';
+    P.push({k:'th', l:'Gesamthärte', v:fmt(dh,1)+' °dH', s, t:s==='ok'?'weich':'hart'});
+    if (dh>c.hardMax) R.push({s:'warn', t:'SoftWater verwenden', a:`${fmt(round5(50*V))} ml/Monat`, d:'Hartes Wasser fördert Kalk und Biofilm. SoftWater regelmäßig dosieren und den pH-Wert im Bereich halten.'});
+  }
+  if (m.temp!=null){
+    const s = m.temp>40?'warn':'ok';
+    P.push({k:'temp', l:'Temperatur', v:fmt(m.temp,1)+' °C', s, t:s==='ok'?'':'über 40 °C'});
+  }
+  if (R.some(r=>/UltraShock/.test(r.t)) ) R.push({s:'ok', t:'Abstand beachten', a:'', d:'Basic frühestens 3 Stunden nach UltraShock zugeben (und umgekehrt).'});
+  if (!R.length && P.length) R.push({s:'ok', t:'Alles im grünen Bereich', a:'', d:'Keine Zugabe nötig. Regelpflege laut Aufgabenliste fortführen.'});
+  return {params:P, recs:R, status:worst(P.map(p=>p.s))};
+}
+
+function taskState(pool, t, now=Date.now()){
+  const phase = startPhase(pool, now);
+  let days = pool.cfg.intervals[t.k] ?? t.days;
+  if (phase && t.start) days = Math.min(days, t.start);
+  const last = pool.tasks[t.k] ? new Date(pool.tasks[t.k]).getTime() : null;
+  if (!last) return {days, due:0, s:'warn', label:'noch nicht erledigt'};
+  const due = Math.ceil((last + days*DAY - now)/DAY);
+  const s = due<0 ? 'crit' : due<=1 ? 'warn' : 'ok';
+  const label = due<0 ? `${-due} Tag${-due===1?'':'e'} überfällig` : due===0 ? 'heute fällig' : due===1 ? 'morgen fällig' : `in ${due} Tagen`;
+  return {days, due, s, label};
+}
+
+function filterWear(pool, f, now=Date.now()){
+  const c=pool.cfg;
+  const age = f.since ? (now-new Date(f.since).getTime())/(30.44*DAY) : null;
+  const rA = age!=null ? age/c.filterLifeMonths : 0, rC = f.cleanings/c.filterMaxClean;
+  const r = Math.max(rA, rC);
+  const s = r>=1 ? 'crit' : r>=0.8 ? 'warn' : 'ok';
+  const why = r>=0.8 ? (rA>=rC ? `Alter ${fmt(age,0)} von ${c.filterLifeMonths} Monaten` : `${f.cleanings} von ${c.filterMaxClean} Reinigungen`) : '';
+  return {age, r, s, why};
+}
+const FSTAT = {in:['eingebaut','ok'], spare:['sauber, bereit','ok'], dirty:['muss gereinigt werden','warn']};
+function getWho(){ try{ return localStorage.getItem('spa-who')||''; }catch(e){ return ''; } }
+function setWho(n){ try{ localStorage.setItem('spa-who', n); }catch(e){} }
+function logDose(p, what, amount){ p.doses.push({at:new Date().toISOString(), what, amount:amount||'', by:getWho()}); if(p.doses.length>400) p.doses.shift(); }
+
+const START_PLAN = [
+  {d:[1,1], t:'Becken befüllen, SoftWater und UltraShock zugeben. pH prüfen, bei über 8 auf 6,8–7,8 regulieren.'},
+  {d:[2,2], t:'Baden, wenn das Wasser klar und geruchlos ist. Abends Basic zugeben. pH prüfen.'},
+  {d:[3,6], t:'pH täglich prüfen (ggf. 2× täglich justieren). Nach jedem Bad UltraShock: 5 ml pro Person, mindestens 10 ml.'},
+  {d:[7,7], t:'pH prüfen und Filter reinigen.'},
+  {d:[8,14], t:'Wochendosis Basic + UltraShock. UltraShock-Wert am Tag nach der Zugabe mindestens 0,3 mg/l.'},
+];
+
+/* ================= Speicher (PocketBase-Server) ================= */
+let state = { pools: { whirlpool: defaultPool('whirlpool'), swimspa: defaultPool('swimspa') } };
+let cur = 'whirlpool', view = 'home', lastEval = null;
+const pb = new PocketBase(location.origin);
+let recId=null, saving=false, pendingSave=false, saveTimer=null, dirty=false;
+
+function migrate(s){
+  for (const k of ['whirlpool','swimspa']){
+    const d = defaultPool(k), p = s.pools?.[k] || {};
+    s.pools = s.pools || {};
+    s.pools[k] = {...d, ...p, cfg:{...d.cfg, ...(p.cfg||{}), intervals:{...d.cfg.intervals, ...(p.cfg?.intervals||{})}}};
+    const q=s.pools[k];
+    if (!q.filters) q.filters=d.filters;
+    if (k==='whirlpool' && !q.cfg.volConfirmed && q.cfg.vol===1300){ q.cfg.vol=1325; q.cfg.volConfirmed=true; if(q.name==='Whirlpool') q.name='Cameo'; if(!q.cfg.dosesCustom) Object.assign(q.cfg, defaultDoses('whirlpool',1325)); }
+  }
+  return s;
+}
+// Zwei Stände zusammenführen: Listen werden vereinigt, Einstellungen vom neueren Stand
+function mergeState(srv, loc){
+  if (!srv) return loc; if (!loc) return srv;
+  const newer = (loc.savedAt||'') >= (srv.savedAt||'') ? loc : srv, older = newer===loc ? srv : loc;
+  const out = JSON.parse(JSON.stringify(newer));
+  for (const k of Object.keys(out.pools||{})){
+    const n=out.pools[k], o=older.pools?.[k]; if(!o) continue;
+    const uni=(A,B,key)=>{ const m=new Map(); [...(B||[]),...(A||[])].forEach(x=>m.set(key(x),x)); return [...m.values()].sort((x,y)=>x.at<y.at?-1:1); };
+    n.log = uni(n.log,o.log,x=>x.id||x.at).filter(x=>!(n.deleted||[]).includes(x.id));
+    n.doses = uni(n.doses,o.doses,x=>x.at+'|'+x.what).slice(-400);
+    n.baths = uni(n.baths,o.baths,x=>x.at).slice(-300);
+    n.deleted = [...new Set([...(n.deleted||[]),...(o.deleted||[])])].slice(-200);
+    n.log = n.log.filter(x=>!n.deleted.includes(x.id)).slice(-400);
+    for (const t of Object.keys(o.tasks||{})) if (!n.tasks[t] || o.tasks[t]>n.tasks[t]) n.tasks[t]=o.tasks[t];
+  }
+  return out;
+}
+function setSync(t){ const el=document.getElementById('sync'); if(el) el.textContent=t; }
+function keepLocal(){ try{ localStorage.setItem('spa-state', JSON.stringify(state)); localStorage.setItem('spa-dirty', dirty?'1':''); }catch(e){} }
+
+function save(){
+  state.savedAt=new Date().toISOString(); dirty=true; keepLocal();
+  clearTimeout(saveTimer); saveTimer = setTimeout(flush, 500);
+}
+async function flush(){
+  if (!pb.authStore.isValid || !dirty) return;
+  if (saving){ pendingSave=true; return; }
+  saving=true; setSync('speichert …');
+  try{
+    let srv=null;
+    try{ const r = await pb.collection('spa_state').getFirstListItem('key="main"'); recId=r.id; srv=r.data; }catch(e){ if(e.status!==404) throw e; }
+    const merged = migrate(mergeState(srv, state));
+    if (recId) await pb.collection('spa_state').update(recId, {data:merged});
+    else { const r = await pb.collection('spa_state').create({key:'main', data:merged}); recId=r.id; }
+    const changed = JSON.stringify(merged)!==JSON.stringify(state);
+    state=merged; dirty=false; keepLocal(); setSync('✓ gespeichert');
+    if (changed) render();
+  }catch(e){ setSync(navigator.onLine?'nicht gespeichert – neuer Versuch folgt':'offline – wird nachgeholt'); }
+  saving=false;
+  if (pendingSave){ pendingSave=false; flush(); }
+}
+window.addEventListener('online', flush);
+setInterval(()=>{ if(dirty) flush(); }, 30000);
+
+async function loadServer(){
+  setSync('lädt …');
+  try{
+    const r = await pb.collection('spa_state').getFirstListItem('key="main"'); recId=r.id;
+    state = migrate(dirty ? mergeState(r.data, state) : JSON.parse(JSON.stringify(r.data)));
+    keepLocal(); render(); setSync('✓ aktuell');
+    if (dirty) flush();
+  }catch(e){
+    if (e.status===404){ dirty=true; flush(); } else setSync('offline – zeigt letzten Stand');
+  }
+  try{
+    await pb.collection('spa_state').subscribe('*', ev=>{
+      if (ev.action==='delete' || saving || dirty) return;
+      if (JSON.stringify(ev.record.data)!==JSON.stringify(state)){ state=migrate(JSON.parse(JSON.stringify(ev.record.data))); recId=ev.record.id; keepLocal(); if(!document.activeElement || !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) render(); }
+    });
+  }catch(e){}
+}
+
+/* ---------- Anmeldung ---------- */
+const me = () => pb.authStore.record;
+const isAdmin = () => me()?.role==='admin';
+function getWho(){ return me()?.name || me()?.username || ''; }
+function setWho(){}
+async function loginScreen(){
+  let needsSetup=false;
+  try{ needsSetup = (await (await fetch('/api/spa/status')).json()).needsSetup; }catch(e){}
+  document.getElementById('pools').innerHTML=''; document.getElementById('nav').innerHTML='';
+  document.getElementById('main').innerHTML = needsSetup ? `<div class="card"><h2>Ersteinrichtung</h2>
+    <p class="small">Lege den ersten Zugang (Admin) an. Den Einrichtungscode bekommst du von Claude.</p>
+    <form id="setupF"><label>Einrichtungscode</label><input name="code" autocomplete="off">
+    <label>Dein Name</label><input name="name" placeholder="z. B. Michael">
+    <label>Benutzername</label><input name="username" autocapitalize="none" placeholder="klein, ohne Leerzeichen">
+    <label>Passwort (mind. 10 Zeichen)</label><input name="password" type="password">
+    <button class="btn full">Einrichten</button><p class="small" id="lerr" style="color:var(--crit)"></p></form></div>`
+  : `<div class="card"><h2>Anmelden</h2><form id="loginF">
+    <label>Benutzername</label><input name="username" autocapitalize="none" autocomplete="username">
+    <label>Passwort</label><input name="password" type="password" autocomplete="current-password">
+    <button class="btn full">Anmelden</button><p class="small" id="lerr" style="color:var(--crit)"></p></form></div>`;
+  setSync('');
+  const f=document.getElementById(needsSetup?'setupF':'loginF');
+  f.addEventListener('submit', async e=>{
+    e.preventDefault(); const d=Object.fromEntries(new FormData(f)); const err=document.getElementById('lerr'); err.textContent='';
+    try{
+      if (needsSetup){
+        const r=await fetch('/api/spa/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+        const j=await r.json(); if(!r.ok) throw new Error(j.message||'Fehler');
+      }
+      await pb.collection('users').authWithPassword(String(d.username).trim().toLowerCase(), d.password);
+      start();
+    }catch(ex){ err.textContent = ex.message && !/Failed to authenticate/.test(ex.message) ? ex.message : 'Benutzername oder Passwort stimmt nicht.'; }
+  });
+}
+async function start(){
+  try{ const ls = localStorage.getItem('spa-state'); if (ls) state = migrate(JSON.parse(ls)); dirty = localStorage.getItem('spa-dirty')==='1'; }catch(e){}
+  if (!pb.authStore.isValid) return loginScreen();
+  render();
+  try{ if (navigator.onLine) await pb.collection('users').authRefresh(); }catch(e){ if (e.status===401||e.status===403){ pb.authStore.clear(); return loginScreen(); } }
+  loadServer();
+}
+async function initDb(){ start(); }
+
+/* ================= UI ================= */
+const P = () => state.pools[cur];
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dstr = iso => new Date(iso).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'});
+const dtstr = iso => new Date(iso).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+function toast(t){ const el=document.createElement('div'); el.className='toast'; el.textContent=t; document.body.appendChild(el); setTimeout(()=>el.remove(),2200); }
+
+const ICONS = {
+  home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+  measure:'<path d="M9 3h6M10 3v6L5 19a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-10V3"/>',
+  tasks:'<path d="M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
+  history:'<path d="M3 3v18h18M7 15l4-4 3 3 5-6"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'
+};
+const NAV_ON = {wizard:'measure'};
+const NAV = [['home','Übersicht'],['measure','Messen'],['tasks','Aufgaben'],['history','Verlauf'],['settings','Einstellungen']];
+
+function render(){
+  document.getElementById('pools').innerHTML = ['whirlpool','swimspa'].map(k=>{
+    const p=state.pools[k];
+    return `<button class="${k===cur?'on':''}" data-pool="${k}">${esc(p.name)}${p.active?'':' (geplant)'}</button>`;
+  }).join('');
+  document.getElementById('nav').innerHTML = NAV.map(([k,l])=>`<button class="${(NAV_ON[view]||view)===k?'on':''}" data-view="${k}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>${l}</button>`).join('');
+  const m = document.getElementById('main');
+  m.innerHTML = ({home:vHome, measure:vMeasure, tasks:vTasks, history:vHistory, settings:vSettings, wizard:vWizard})[view]();
+  after[view]?.();
+}
+
+function banners(){
+  const p=P(), out=[];
+  if (!p.active) out.push(`<div class="banner"><b>${esc(p.name)} ist als „geplant“ markiert.</b> Unter Einstellungen aktivieren, sobald er läuft.</div>`);
+  if (!p.cfg.volConfirmed) out.push(`<div class="banner"><b>Bitte Wasservolumen prüfen:</b> eingestellt sind ${fmt(p.cfg.vol)} l. Alle Dosierungen hängen davon ab. <a href="#" data-view="settings">Jetzt anpassen</a></div>`);
+  if (p.type==='swimspa' && !p.cfg.basicWeek) out.push(`<div class="banner"><b>Basic-Wochendosis fehlt:</b> Bitte den Wert für den Swim-Spa aus der SpaBalancer-Anleitung oder vom Etikett eintragen.</div>`);
+  const ph = startPhase(p);
+  if (ph){
+    const step = START_PLAN.find(s=>ph>=s.d[0]&&ph<=s.d[1]);
+    out.push(`<div class="banner"><b>Startphase nach Neubefüllung – Tag ${ph} von 14</b><br>${esc(step?.t||'')}</div>`);
+  }
+  return out.join('');
+}
+
+function vHome(){
+  const p=P(), last=p.log[p.log.length-1];
+  const ev = last ? evaluate(last,p) : null;
+  const due = TASKS.map(t=>({t, st:taskState(p,t)})).filter(x=>x.st.s!=='ok').sort((a,b)=>a.st.due-b.st.due);
+  const daysOld = last ? Math.floor((Date.now()-new Date(last.at))/DAY) : null;
+  const fw = (p.filters||[]).map(f=>({f, w:filterWear(p,f)})).filter(x=>x.w.s!=='ok');
+  const dirty = (p.filters||[]).filter(f=>f.status==='dirty');
+  const sLabel = {ok:'Wasser in Ordnung', warn:'Handlungsbedarf', crit:'Sofort handeln', none:'Noch keine Messung'};
+  return `${banners()}${whoBanner()}
+  <button class="btn full" data-view="wizard" style="margin:0 0 12px;padding:14px;font-size:16px">🧪 Wasser messen – Schritt für Schritt</button>
+  <div class="card status ${ev?ev.status:'none'}">
+    <span class="dot"></span>
+    <div><b>${ev?sLabel[ev.status]:sLabel.none}</b><div class="small">${last?`Letzte Messung ${dtstr(last.at)}${daysOld>7?` – älter als eine Woche, bitte neu messen`:''}`:'Miss mit dem PoolLab 2.0 und trage die Werte unter „Messen“ ein.'}</div></div>
+  </div>
+  ${ev?`<div class="card"><h2>Messwerte</h2><div class="tiles">${ev.params.map(x=>`<div class="tile ${x.s}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="t">${esc(x.t)}</div></div>`).join('')}</div></div>
+  <div class="card"><h2>Was jetzt zu tun ist</h2>${recsHtml(ev.recs)}</div>`:''}
+  <div class="card"><h2>Gebadet?</h2><p class="small" style="margin-top:0">Nach jedem Bad UltraShock zugeben: 5 ml pro Person, mindestens 10 ml.</p>
+    <div class="seg" id="bathSeg">${[1,2,3,4,5,6].map(n=>`<button data-bath="${n}">${n} Pers.</button>`).join('')}</div>
+    ${p.baths.length?`<div class="hint">Zuletzt: ${dtstr(p.baths[p.baths.length-1].at)}, ${p.baths[p.baths.length-1].persons} Pers.</div>`:''}
+  </div>
+  <div class="card"><h2>Fällige Aufgaben</h2>${due.length||fw.length||dirty.length?due.map(({t,st})=>`<div class="task"><span class="dot ${st.s}"></span><div class="grow">${t.name}<div class="small">${st.label}</div></div><button class="btn sm sec" data-done="${t.k}">Erledigt</button></div>`).join('')
+   + dirty.map(f=>`<div class="task"><span class="dot warn"></span><div class="grow">Filter ${f.n} reinigen<div class="small">liegt verschmutzt bereit</div></div><button class="btn sm sec" data-fclean="${f.n}">Gereinigt</button></div>`).join('')
+   + fw.map(({f,w})=>`<div class="task"><span class="dot ${w.s}"></span><div class="grow">Filter ${f.n} ${w.s==='crit'?'ersetzen':'bald ersetzen'}<div class="small">${w.why}</div></div><button class="btn sm sec" data-view="tasks">Ansehen</button></div>`).join('')
+   :'<p class="small">Nichts fällig. 👍</p>'}</div>`;
+}
+
+function whoBanner(){
+  return '';
+  return `<div class="banner"><b>Wer benutzt dieses Gerät?</b> Dann sieht man im Protokoll, wer gemessen oder dosiert hat.
+   <div class="row" style="margin-top:8px"><input id="whoIn" placeholder="Vorname"><button class="btn" id="whoBtn">Speichern</button></div></div>`;
+}
+function recsHtml(recs){
+  return recs.map(r=>`<div class="rec"><span class="dot ${r.s}"></span><div><b>${esc(r.t)}</b> ${r.a?`<span class="amt">${esc(r.a)}</span>`:''}<div class="small">${esc(r.d)}</div></div></div>`).join('');
+}
+
+function vMeasure(){
+  const now = new Date(); now.setMinutes(now.getMinutes()-now.getTimezoneOffset());
+  return `${banners()}<button class="btn full" data-view="wizard" style="margin:0 0 12px">🧪 Lieber Schritt für Schritt mit Anleitung</button>
+  <div class="card"><h2>Schnell eintragen – ${esc(P().name)}</h2>
+  <p class="small" style="margin-top:0">Werte vom PoolLab 2.0 übernehmen. Leere Felder werden nicht bewertet.</p>
+  <form id="mform">
+    <label>Zeitpunkt</label><input type="datetime-local" name="at" value="${now.toISOString().slice(0,16)}">
+    <div class="row">
+      <div><label>pH-Wert</label><input name="ph" inputmode="decimal" placeholder="z. B. 7,4"></div>
+      <div><label>Chlordioxid (UltraShock) mg/l</label><input name="clo2" inputmode="decimal" placeholder="z. B. 0,4"></div>
+    </div>
+    <div class="row">
+      <div><label>Alkalinität mg/l</label><input name="ta" inputmode="decimal" placeholder="optional"></div>
+      <div><label>Gesamthärte mg/l CaCO₃</label><input name="th" inputmode="decimal" placeholder="optional"></div>
+    </div>
+    <div class="row">
+      <div><label>Temperatur °C</label><input name="temp" inputmode="decimal" placeholder="optional"></div>
+      <div><label>Notiz</label><input name="note" placeholder="optional"></div>
+    </div>
+    <label>Wasserbild</label><div class="seg" data-name="look">${[['klar','klar'],['leicht','leicht trüb'],['trüb','trüb'],['grün','grünlich']].map(([v,l],i)=>`<button type="button" data-val="${v}" class="${i===0?'on':''}">${l}</button>`).join('')}</div>
+    <label>Geruch</label><div class="seg" data-name="smell"><button type="button" data-val="nein" class="on">neutral</button><button type="button" data-val="ja">riecht</button></div>
+    <label>Schaum</label><div class="seg" data-name="foam"><button type="button" data-val="nein" class="on">nein</button><button type="button" data-val="ja">ja</button></div>
+    <button class="btn full" type="submit">Speichern &amp; bewerten</button>
+  </form></div>
+  <div id="evalOut"></div>`;
+}
+
+function filterCard(p){
+  if (!p.filters?.length) return '';
+  const c=p.cfg;
+  return `<div class="card"><h2>Filter</h2>
+  <p class="small" style="margin-top:0">Filter mit 1, 2, 3 beschriften. Beim Tausch wird erfasst, welcher Filter eingesetzt wird; der ausgebaute wird nach dem Reinigen gezählt.</p>
+  ${p.filters.map(f=>{const w=filterWear(p,f), st=FSTAT[f.status]; const pct=Math.min(100,Math.round(w.r*100));
+   return `<div class="task" style="align-items:flex-start"><div style="font-size:26px;font-weight:700;width:34px;text-align:center;color:var(--brand)">${f.n}</div>
+   <div class="grow"><b>${st[0]}</b> ${w.s!=='ok'?`<span class="tag ${w.s}">${w.s==='crit'?'ersetzen':'bald ersetzen'}</span>`:''}
+    <div class="small">${f.since?`im Einsatz seit ${dstr(f.since)} (${fmt(w.age,1)} Mon.)`:'noch nicht benutzt'} · ${f.cleanings}× gereinigt${f.lastClean?` · zuletzt ${dstr(f.lastClean)}`:''} · ${f.uses||0}× eingesetzt</div>
+    <div style="height:6px;background:var(--line);border-radius:3px;margin:6px 0"><div style="height:6px;width:${pct}%;border-radius:3px;background:var(--${w.s==='ok'?'ok':w.s})"></div></div>
+    ${!f.since?`<div class="row" style="align-items:center;margin-bottom:6px"><span class="small">Erstmals benutzt am:</span><input type="date" data-fsince="${f.n}"></div>`:''}
+    <div class="seg">${f.status==='dirty'?`<button data-fclean="${f.n}">✓ Gereinigt</button>`:''}${f.status==='in'?`<button data-done="filter">Tauschen</button><button data-fcleanin="${f.n}">Eingebaut gereinigt</button>`:''}<button data-fnew="${f.n}">Durch neuen ersetzt</button></div>
+   </div></div>`}).join('')}
+   <div class="hint">Verschleiß = Alter (max. ${c.filterLifeMonths} Monate) oder Reinigungen (max. ${c.filterMaxClean}), je nachdem was zuerst erreicht ist. Richtwerte, in den Einstellungen anpassbar.</div></div>`;
+}
+function openSwap(){
+  const p=P(), inF=p.filters.find(f=>f.status==='in');
+  const opts=p.filters.filter(f=>f.status!=='in');
+  document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card"><h2>Filter tauschen</h2>
+   <p class="small">${inF?`Filter ${inF.n} kommt raus und wird als „muss gereinigt werden“ markiert.`:''} Welchen Filter setzt du ein?</p>
+   ${opts.map(f=>`<button class="btn full ${f.status==='spare'?'':'sec'}" data-swapin="${f.n}">Filter ${f.n} einsetzen <span style="font-weight:400">(${FSTAT[f.status][0]})</span></button>`).join('')}
+   ${inF?`<button class="btn full ghost" data-fcleanin="${inF.n}">Nicht getauscht – Filter ${inF.n} nur gereinigt</button>`:''}
+   <button class="btn full ghost" data-close="1">Abbrechen</button></div></div>`;
+}
+function closeModal(){ document.getElementById('modal').innerHTML=''; }
+
+function vTasks(){
+  const p=P(), ph=startPhase(p);
+  return `${banners()}${filterCard(p)}<div class="card"><h2>Pflegeplan – ${esc(p.name)}</h2>
+  ${TASKS.map(t=>{const st=taskState(p,t);return `<div class="task"><span class="dot ${st.s}"></span><div class="grow"><b>${t.name}</b> <span class="tag ${st.s}">${st.label}</span><div class="small">alle ${st.days} Tage${p.tasks[t.k]?` · zuletzt ${dstr(p.tasks[t.k])}`:''}<br>${esc(t.note)}</div></div><button class="btn sm sec" data-done="${t.k}">Erledigt</button></div>`}).join('')}
+  </div>
+  <div class="card"><h2>Neubefüllung</h2>
+    <p class="small">${p.filledAt?`Zuletzt befüllt am ${dstr(p.filledAt)}.`:'Noch kein Befülldatum hinterlegt.'} Startet die 14-tägige Startphase mit engmaschigem Plan.</p>
+    ${START_PLAN.map(s=>`<div class="task"><span class="dot ${ph&&ph>=s.d[0]&&ph<=s.d[1]?'warn':'none'}"></span><div class="grow"><b>Tag ${s.d[0]}${s.d[1]!==s.d[0]?'–'+s.d[1]:''}</b><div class="small">${esc(s.t)}</div></div></div>`).join('')}
+    <label>Befüllt am</label><input type="date" id="fillDate" value="${new Date().toISOString().slice(0,10)}">
+    <button class="btn full sec" id="fillBtn">Neubefüllung eintragen</button>
+    <p class="hint">SoftWater bei Neubefüllung: Menge je nach Wasserhärte (über/unter 12 °dH) laut SpaBalancer-Tabelle bzw. Etikett.</p>
+  </div>`;
+}
+
+function vHistory(){
+  const p=P(), L=[...p.log].reverse();
+  if (!L.length) return `<div class="card"><p class="small">Noch keine Messungen.</p></div>`;
+  const cell=(v,s,d)=>`<td class="c-${s||''}">${v==null?'–':fmt(v,d)}</td>`;
+  return `<div class="card chart"><h2>pH-Verlauf</h2>${chart(p.log,'ph',[p.cfg.phMin,p.cfg.phMax],6.4,8.4)}</div>
+  <div class="card chart"><h2>UltraShock (ClO₂) mg/l</h2>${chart(p.log,'clo2',[p.cfg.usMin,p.cfg.usMax],0,null)}</div>
+  <div class="card"><h2>Alle Messungen</h2><div style="overflow-x:auto"><table><tr><th>Datum</th><th>pH</th><th>ClO₂</th><th>TA</th><th>°dH</th><th>Wer</th><th></th></tr>
+  ${L.map(m=>{const e=evaluate(m,p);const s=k=>e.params.find(x=>x.k===k)?.s;return `<tr>${'<td>'+dtstr(m.at)+'</td>'}${cell(m.ph,s('ph'),2)}${cell(m.clo2,s('clo2'),2)}${cell(m.ta,s('ta'),0)}${cell(m.th!=null?dHfromMg(m.th):null,s('th'),1)}<td class="small">${esc(m.by||'')}</td><td><button class="btn sm ghost" data-del="${m.id}">✕</button></td></tr>`}).join('')}
+  </table></div></div>
+  ${p.doses.length?`<div class="card"><h2>Protokoll</h2><table>${[...p.doses].reverse().slice(0,60).map(d=>`<tr><td>${dtstr(d.at)}</td><td>${esc(d.what)}</td><td>${esc(d.amount)}</td><td class="small">${esc(d.by||'')}</td></tr>`).join('')}</table></div>`:''}`;
+}
+
+function chart(log, key, band, yMin, yMax){
+  const pts = log.filter(m=>m[key]!=null).slice(-30);
+  if (pts.length<1) return '<p class="small">Noch keine Werte.</p>';
+  const W=640,H=200,pl=36,pr=10,pt=10,pb=26;
+  const vals=pts.map(m=>m[key]);
+  const lo = yMin ?? Math.min(...vals, band[0]), hi = yMax ?? Math.max(...vals, band[1]*0.4, band[0]*2)*1.15;
+  const t0=new Date(pts[0].at).getTime(), t1=Math.max(t0+DAY, new Date(pts[pts.length-1].at).getTime());
+  const x=t=>pl+(new Date(t).getTime()-t0)/(t1-t0)*(W-pl-pr), y=v=>pt+(1-(Math.min(Math.max(v,lo),hi)-lo)/(hi-lo))*(H-pt-pb);
+  const bTop=y(Math.min(band[1],hi)), bBot=y(Math.max(band[0],lo));
+  const ticks=[lo,(lo+hi)/2,hi];
+  const path=pts.map((m,i)=>(i?'L':'M')+x(m.at).toFixed(1)+','+y(m[key]).toFixed(1)).join(' ');
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">
+   <rect x="${pl}" y="${bTop}" width="${W-pl-pr}" height="${Math.max(0,bBot-bTop)}" fill="var(--okbg)"/>
+   ${ticks.map(v=>`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${pl-6}" y="${y(v)+4}" font-size="11" text-anchor="end" fill="var(--mute)">${fmt(v,1)}</text>`).join('')}
+   <path d="${path}" fill="none" stroke="var(--brand)" stroke-width="2.5"/>
+   ${pts.map(m=>`<circle cx="${x(m.at)}" cy="${y(m[key])}" r="4" fill="var(--brand)"/>`).join('')}
+   <text x="${pl}" y="${H-6}" font-size="11" fill="var(--mute)">${dstr(pts[0].at)}</text>
+   <text x="${W-pr}" y="${H-6}" font-size="11" text-anchor="end" fill="var(--mute)">${dstr(pts[pts.length-1].at)}</text>
+  </svg><div class="hint">Grün = Zielbereich</div>`;
+}
+
+function vSettings(){
+  const p=P(), c=p.cfg, num=(n,v,step='any')=>`<input name="${n}" type="number" step="${step}" value="${v??''}">`;
+  return `<div class="card"><h2>${esc(p.name)}</h2><form id="sform">
+   <label>Bezeichnung</label><input name="name" value="${esc(p.name)}">
+   <label><input type="checkbox" name="active" style="width:auto" ${p.active?'checked':''}> In Betrieb</label>
+   <label>Wasservolumen (Liter)</label>${num('vol',c.vol,'10')}
+   <div class="hint">Steht in der Armstark-Modellübersicht bzw. im Datenblatt deines Modells.</div>
+   <h3>Dosierung</h3>
+   <div class="row"><div><label>UltraShock wöchentlich (ml)</label>${num('usWeek',c.usWeek,'5')}</div><div><label>Basic wöchentlich (ml)</label>${num('basicWeek',c.basicWeek,'5')}</div></div>
+   <div class="hint">Voreinstellung aus der SpaBalancer-Tabelle${p.type==='swimspa'?' (Swim-Spa: Basic bitte selbst eintragen)':''}. Bei geändertem Volumen wird neu berechnet, solange du die Werte nicht selbst geändert hast.</div>
+   <div class="row"><div><label>Schockbehandlung ml je 1.000 l</label>${num('shockPer1000',c.shockPer1000,'5')}</div><div></div></div>
+   <div class="row"><div><label>pH-Minus: g je 0,1 pH je 1.000 l</label>${num('phMinusGper01',c.phMinusGper01)}</div><div><label>pH-Plus: g je 0,1 pH je 1.000 l</label>${num('phPlusGper01',c.phPlusGper01)}</div></div>
+   <div class="hint">Diese beiden Werte stehen auf dem Etikett deines pH-Mittels – bitte übernehmen.</div>
+   <h3>Grenzwerte</h3>
+   <div class="row"><div><label>pH min</label>${num('phMin',c.phMin)}</div><div><label>pH max</label>${num('phMax',c.phMax)}</div></div>
+   <div class="row"><div><label>pH kritisch ab</label>${num('phCrit',c.phCrit)}</div><div><label>pH kritisch unter</label>${num('phCritLow',c.phCritLow)}</div></div>
+   <div class="row"><div><label>ClO₂ min (mg/l)</label>${num('usMin',c.usMin)}</div><div><label>ClO₂ max Baden (mg/l)</label>${num('usMax',c.usMax)}</div></div>
+   <div class="row"><div><label>Alkalinität min</label>${num('taMin',c.taMin)}</div><div><label>Alkalinität max</label>${num('taMax',c.taMax)}</div></div>
+   <label>Wasserhärte „hart“ ab (°dH)</label>${num('hardMax',c.hardMax)}
+   <h3>Filter</h3>
+   <div class="row"><div><label>Lebensdauer (Monate)</label>${num('filterLifeMonths',c.filterLifeMonths,'1')}</div><div><label>Max. Reinigungen</label>${num('filterMaxClean',c.filterMaxClean,'1')}</div></div>
+   <label>Anzahl Filter</label>${num('filterCount',p.filters.length,'1')}
+   <h3>Intervalle (Tage)</h3>
+   ${TASKS.map(t=>`<div class="row" style="align-items:end"><div><label>${t.name}</label></div><div>${num('int_'+t.k,c.intervals[t.k],'1')}</div></div>`).join('')}
+   <button class="btn full" type="submit">Speichern</button>
+  </form></div>
+  <div class="card"><h2>Mein Zugang</h2><p class="small" style="margin-top:0">Angemeldet als <b>${esc(getWho())}</b> (${esc(me()?.username||'')})${isAdmin()?' · Admin':''}</p>
+   <button class="btn ghost" id="logoutBtn">Abmelden</button></div>
+  ${isAdmin()?`<div class="card"><h2>Zugänge der Familie</h2><div id="ulist" class="small">lädt …</div>
+   <h3>Neuer Zugang</h3><form id="uform"><div class="row"><div><label>Name</label><input name="name" placeholder="z. B. Lena"></div><div><label>Benutzername</label><input name="username" autocapitalize="none" placeholder="lena"></div></div>
+   <label>Passwort (mind. 8 Zeichen)</label><input name="password" type="text" autocomplete="off">
+   <label><input type="checkbox" name="admin" style="width:auto"> darf auch Zugänge verwalten (Admin)</label>
+   <button class="btn full sec">Zugang anlegen</button></form></div>
+  <div class="card"><h2>Daten übernehmen</h2><p class="small" style="margin-top:0">In der alten Version (Claude) unter Einstellungen „Daten als Text kopieren“ tippen und hier einfügen. Vorhandene Messungen bleiben erhalten, beides wird zusammengeführt.</p>
+   <textarea id="impText" rows="4" placeholder="{ &quot;pools&quot;: … }"></textarea><button class="btn full sec" id="impBtn">Übernehmen</button></div>`:''}
+  <div class="card"><h2>Daten</h2><p class="small">Gespeichert auf dem eigenen Server und auf jedem angemeldeten Gerät gleich. Ohne Netz wird auf dem Gerät gespeichert und später übertragen.</p>
+   <button class="btn sec" id="exportBtn">Daten als Text kopieren</button></div>
+  <div class="card small">Dosierungen und Abläufe nach den SpaBalancer-Wasserpflegeanleitungen (Basic, UltraShock, SoftWater). Alle Mengen sind Richtwerte, maßgeblich ist das Produktetikett. UltraShock wird mit dem PoolLab-Parameter „Chlordioxid“ gemessen.</div>`;
+}
+
+
+/* ================= Geführte Messung ================= */
+let wiz = {step:0, v:{look:'klar',smell:'nein',foam:'nein'}, ev:null, checks:{}, saved:false};
+const WSTEPS = ['Vorbereiten','Probe & ZERO','Parameter','Messen','Werte','Dosieren','Aufräumen'];
+function wizNav(){
+  const st=wiz.step;
+  return `<div class="seg" style="margin-bottom:12px">${WSTEPS.map((t,i)=>`<button class="${i===st?'on':''}" ${i>4&&!wiz.ev?'disabled':''} data-wstep="${i}">${i+1}. ${t}</button>`).join('')}</div>`;
+}
+function wizBtns(next='Weiter', back=true){
+  return `<div class="row" style="margin-top:16px">${back&&wiz.step>0?`<button class="btn ghost" data-wgo="-1">Zurück</button>`:'<span></span>'}<button class="btn" data-wgo="1">${next}</button></div>`;
+}
+function step(n, title, body){ return `<div class="rec"><div style="font-weight:700;color:var(--brand);min-width:22px">${n}</div><div><b>${title}</b>${body?`<div class="small">${body}</div>`:''}</div></div>`; }
+function vWizard(){
+  const p=P(), st=wiz.step;
+  let h='';
+  if (st===0) h=`<div class="card"><h2>1. Vorbereiten</h2>
+    ${step('•','Das brauchst du','PoolLab 2.0, die 10-ml-Spritze, die drei Rührstäbe und die Tabletten:')}
+    <table style="margin:6px 0 4px"><tr><th>Messwert</th><th>Tablette</th><th>Wann</th></tr>
+    <tr><td>pH-Wert</td><td>Phenol Red</td><td>jedes Mal</td></tr>
+    <tr><td>UltraShock (Chlordioxid)</td><td>DPD No. 1</td><td>jedes Mal</td></tr>
+    <tr><td>Alkalinität</td><td>Alkalinity-M</td><td>1× pro Woche</td></tr></table>
+    ${step('•','Tabletten nicht mit den Fingern anfassen','Direkt aus der Folie in die Kammer drücken. Fett und Schweiß verfälschen das Ergebnis.')}
+    ${step('•','Düsen aus, Abdeckung auf','Wasser kurz zur Ruhe kommen lassen.')}
+    </div>${wizBtns()}`;
+  if (st===1) h=`<div class="card"><h2>2. Wasserprobe & Nullabgleich</h2>
+    ${step(1,'PoolLab einschalten','On/Off-Taste ca. 3 Sekunden drücken.')}
+    ${step(2,'Die drei Klappdeckel öffnen','')}
+    ${step(3,'Jede Kammer mit 10 ml Wasser füllen','Wasser mit der Spritze etwa ellenbogentief und nicht direkt an einer Düse entnehmen. Die Spritze liefert genau 10 ml.')}
+    ${step(4,'Deckel schließen und ZERO drücken','Der Nullabgleich rechnet die Trübung heraus. Er ist nur einmal nach dem Einschalten nötig.')}
+    </div>${wizBtns()}`;
+  if (st===2) h=`<div class="card"><h2>3. Messwerte auswählen</h2>
+    ${step(1,'Mit den T-Tasten je Kammer einen Messwert wählen','Taste 2 Sekunden halten → Liste öffnet sich.')}
+    <table style="margin:6px 0"><tr><th>Kammer</th><th>Messwert im Display</th></tr>
+    <tr><td>1</td><td>pH</td></tr><tr><td>2</td><td>Chlordioxid (ClO₂)</td></tr><tr><td>3</td><td>Alkalinität (nur 1× pro Woche, sonst leer lassen)</td></tr></table>
+    ${step('!','Wenn das Gerät eine andere Kammer verlangt','Manche Messwerte gehen nur in einer bestimmten Kammer. Dann der Anzeige folgen, Hauptsache die Tablette landet in der richtigen Kammer.')}
+    </div>${wizBtns()}`;
+  if (st===3) h=`<div class="card"><h2>4. Tabletten zugeben & messen</h2>
+    ${step(1,'Passende Tablette in jede Kammer','pH → Phenol Red · Chlordioxid → DPD No. 1 · Alkalinität → Alkalinity-M')}
+    ${step(2,'Kräftig zerdrücken und verrühren','Für jede Kammer einen eigenen Rührstab nehmen und immer dieselbe Farbe verwenden, z. B. weiß = pH, blau = ClO₂, rot = Alkalinität. Rühren, bis nichts mehr ungelöst ist.')}
+    ${step(3,'Deckel schließen','')}
+    ${step(4,'T-Taste jeder Kammer drücken, dann OK/TEST','Der Countdown startet. Nicht abbrechen, warten bis die Ergebnisse erscheinen.')}
+    </div>${wizBtns('Ergebnisse eintragen')}`;
+  if (st===4){ const v=wiz.v, seg=(k,opts)=>`<div class="seg" data-wseg="${k}">${opts.map(([val,l])=>`<button type="button" data-val="${val}" class="${v[k]===val?'on':''}">${l}</button>`).join('')}</div>`;
+    h=`<div class="card"><h2>5. Werte eintragen</h2>
+    <div class="row"><div><label>pH</label><input data-wv="ph" inputmode="decimal" value="${v.ph??''}" placeholder="z. B. 7,4"></div>
+    <div><label>Chlordioxid mg/l</label><input data-wv="clo2" inputmode="decimal" value="${v.clo2??''}" placeholder="z. B. 0,4"></div></div>
+    <label>Alkalinität mg/l (falls gemessen)</label><input data-wv="ta" inputmode="decimal" value="${v.ta??''}">
+    <label>Wie sieht das Wasser aus?</label>${seg('look',[['klar','klar'],['leicht','leicht trüb'],['trüb','trüb'],['grün','grünlich']])}
+    <label>Riecht es?</label>${seg('smell',[['nein','neutral'],['ja','riecht']])}
+    <label>Schaum?</label>${seg('foam',[['nein','nein'],['ja','ja']])}
+    </div><div class="row" style="margin-top:16px"><button class="btn ghost" data-wgo="-1">Zurück</button><button class="btn" id="wEval">Auswerten</button></div>`; }
+  if (st===5){ const ev=wiz.ev;
+    const todo=ev.recs.filter(r=>r.s!=='ok'||r.a);
+    h=`<div class="card status ${ev.status}"><span class="dot"></span><b>${{ok:'Wasser in Ordnung',warn:'Handlungsbedarf',crit:'Sofort handeln',none:'Keine Werte'}[ev.status]}</b></div>
+    <div class="card"><h2>6. Dosieren</h2>
+    ${todo.length?`<p class="small" style="margin-top:0">In dieser Reihenfolge abarbeiten und abhaken:</p>`:''}
+    ${ev.recs.map((r,i)=>{const act=r.s!=='ok'||r.a; return `<div class="rec">${act?`<input type="checkbox" data-wcheck="${i}" ${wiz.checks[i]?'checked':''} style="width:22px;height:22px;flex:none;margin-top:2px">`:`<span class="dot ${r.s}"></span>`}<div><b>${esc(r.t)}</b> ${r.a?`<span class="amt">${esc(r.a)}</span>`:''}<div class="small">${esc(r.d)}${howTo(r)}</div></div></div>`;}).join('')}
+    </div>
+    <div class="card small"><b>Sicherheit:</b> Mittel nie miteinander mischen. Für jedes Mittel einen eigenen, sauberen Messbecher nehmen. Immer das Mittel ins Wasser geben, nie Wasser ins Mittel. Kinder dosieren nur zusammen mit einem Erwachsenen. Nach dem Dosieren Hände waschen.</div>
+    ${wizBtns('Weiter zum Aufräumen')}`; }
+  if (st===6) h=`<div class="card"><h2>7. Aufräumen</h2>
+    ${step(1,'Küvette ausspülen','Mit klarem Wasser spülen, bis keine Farbe mehr zu sehen ist. Rückstände verfälschen die nächste Messung.')}
+    ${step(2,'Gerät abtrocknen, nicht in die Sonne legen','')}
+    ${step(3,'Tabletten trocken und verschlossen lagern','')}
+    ${step(4,'Optional: Werte in die LabCOM-Cloud schicken','WiFi-Taste am PoolLab drücken.')}
+    </div><button class="btn full" id="wFinish">Fertig ✓</button>`;
+  return `${wizNav()}${h}`;
+}
+function howTo(r){
+  if (/^pH-/.test(r.t)) return '<br><br><b>So geht’s:</b> Düsen einschalten. Menge abwiegen bzw. mit dem Messlöffel abmessen und langsam übers Wasser verteilen. Nach 2 Stunden neu messen (pH-Kammer reicht).';
+  if (/UltraShock/.test(r.t)) return '<br><br><b>So geht’s:</b> Mit dem Messbecher abmessen und bei laufenden Pumpen ins Wasser geben.';
+  return '';
+}
+function wizSave(){
+  if (wiz.saved) return;
+  const p=P(), v=wiz.v, m={id:Date.now().toString(36), at:new Date().toISOString(), ph:v.ph, clo2:v.clo2, ta:v.ta, th:null, temp:null, note:'geführt', look:v.look, smell:v.smell, foam:v.foam, by:getWho()};
+  p.log.push(m); if(p.log.length>400) p.log.shift(); if (m.ph!=null) p.tasks.ph=m.at;
+  wiz.saved=true; save();
+}
+function wizFinish(){
+  const p=P();
+  (wiz.ev?.recs||[]).forEach((r,i)=>{ if (wiz.checks[i]) logDose(p, r.t, r.a); });
+  save(); wiz={step:0, v:{look:'klar',smell:'nein',foam:'nein'}, ev:null, checks:{}, saved:false};
+  view='home'; render(); window.scrollTo(0,0); toast('Gespeichert – danke! 💧');
+}
+
+/* ================= Events ================= */
+const after = {
+  measure(){
+    document.querySelectorAll('.seg[data-name]').forEach(seg=>seg.addEventListener('click',e=>{
+      const b=e.target.closest('button'); if(!b) return; seg.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    }));
+    document.getElementById('mform').addEventListener('submit',e=>{
+      e.preventDefault(); const f=new FormData(e.target);
+      const n=k=>{const v=String(f.get(k)||'').replace(',','.').trim(); return v===''?null:Number(v);};
+      const seg=k=>document.querySelector(`.seg[data-name="${k}"] .on`)?.dataset.val;
+      const m={id:Date.now().toString(36), at:new Date(f.get('at')||Date.now()).toISOString(), ph:n('ph'), clo2:n('clo2'), ta:n('ta'), th:n('th'), temp:n('temp'), note:String(f.get('note')||''), by:getWho(), look:seg('look'), smell:seg('smell'), foam:seg('foam')};
+      if ([m.ph,m.clo2,m.ta,m.th,m.temp].some(v=>v!=null&&isNaN(v))) return toast('Bitte nur Zahlen eintragen');
+      const p=P(); p.log.push(m); p.log.sort((a,b)=>a.at<b.at?-1:1); if(p.log.length>400) p.log.splice(0,p.log.length-400);
+      if (m.ph!=null) p.tasks.ph=m.at;
+      save();
+      const ev=evaluate(m,p);
+      document.getElementById('evalOut').innerHTML=`<div class="card status ${ev.status}"><span class="dot"></span><b>${{ok:'Wasser in Ordnung',warn:'Handlungsbedarf',crit:'Sofort handeln',none:'Keine Werte'}[ev.status]}</b></div><div class="card"><h2>Empfehlung</h2>${recsHtml(ev.recs)}</div>`;
+      e.target.reset(); document.getElementById('evalOut').scrollIntoView({behavior:'smooth'});
+      toast('Messung gespeichert');
+    });
+  },
+  tasks(){
+    document.querySelectorAll('[data-fsince]').forEach(inp=>inp.addEventListener('change',()=>{ if(!inp.value) return; const f=P().filters.find(x=>x.n===+inp.dataset.fsince); f.since=new Date(inp.value+'T12:00').toISOString(); if(!f.uses) f.uses=1; save(); render(); }));
+    document.getElementById('fillBtn').onclick=()=>{
+      const d=document.getElementById('fillDate').value; if(!d) return;
+      const p=P(); p.filledAt=new Date(d+'T08:00').toISOString(); p.tasks.change=p.filledAt;
+      logDose(p, 'Neubefüllung'); save(); render(); toast('Startphase gestartet');
+    };
+  },
+  history(){},
+  home(){
+    const b=document.getElementById('whoBtn'); if(b) b.onclick=()=>{ const n=document.getElementById('whoIn').value.trim(); if(n){ setWho(n); render(); } };
+  },
+  wizard(){
+    document.querySelectorAll('[data-wseg]').forEach(seg=>seg.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b) return; wiz.v[seg.dataset.wseg]=b.dataset.val; seg.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));}));
+    document.querySelectorAll('[data-wv]').forEach(inp=>inp.addEventListener('input',()=>{const t=inp.value.replace(',','.').trim(); wiz.v[inp.dataset.wv]= t===''?null:Number(t);}));
+    document.querySelectorAll('[data-wcheck]').forEach(cb=>cb.addEventListener('change',()=>{wiz.checks[cb.dataset.wcheck]=cb.checked;}));
+    const ev=document.getElementById('wEval'); if(ev) ev.onclick=()=>{
+      const v=wiz.v; if ([v.ph,v.clo2,v.ta].some(x=>x!=null&&isNaN(x))) return toast('Bitte nur Zahlen eintragen');
+      if (v.ph==null && v.clo2==null) return toast('Mindestens pH oder Chlordioxid eintragen');
+      wiz.ev=evaluate({...v}, P()); wiz.checks={}; wiz.saved=false; wizSave(); wiz.step=5; render(); window.scrollTo(0,0);
+    };
+    const fin=document.getElementById('wFinish'); if(fin) fin.onclick=wizFinish;
+  },
+  settings(){
+    document.getElementById('sform').addEventListener('submit',e=>{
+      e.preventDefault(); const f=new FormData(e.target), p=P(), c=p.cfg;
+      const n=k=>{const v=f.get(k); return v===''||v==null?null:Number(v);};
+      const oldDef = defaultDoses(p.type,c.vol);
+      p.name = String(f.get('name')||p.name); p.active = !!f.get('active');
+      const newVol = n('vol')||c.vol;
+      const userUs=n('usWeek'), userBasic=n('basicWeek');
+      const changedDoses = userUs!==c.usWeek || userBasic!==c.basicWeek;
+      if (changedDoses) c.dosesCustom = !(userUs===oldDef.usWeek && userBasic===oldDef.basicWeek);
+      c.usWeek=userUs; c.basicWeek=userBasic;
+      if (newVol!==c.vol){ c.vol=newVol; if(!c.dosesCustom){ const d=defaultDoses(p.type,newVol); c.usWeek=d.usWeek; if(p.type==='whirlpool') c.basicWeek=d.basicWeek; } }
+      c.volConfirmed = true;
+      const fc=n('filterCount'); if (fc!=null && fc>=0 && fc<=6 && fc!==p.filters.length){ while(p.filters.length<fc) p.filters.push({n:p.filters.length+1,status:p.filters.length?'spare':'in',since:null,cleanings:0,lastClean:null,uses:0}); p.filters.length=fc; }
+      for (const k of ['filterLifeMonths','filterMaxClean','shockPer1000','phMinusGper01','phPlusGper01','phMin','phMax','phCrit','phCritLow','usMin','usMax','taMin','taMax','hardMax']){ const v=n(k); if(v!=null) c[k]=v; }
+      TASKS.forEach(t=>{const v=n('int_'+t.k); if(v) c.intervals[t.k]=v;});
+      save(); render(); toast('Gespeichert');
+    });
+    document.getElementById('logoutBtn').onclick=()=>{ pb.authStore.clear(); try{pb.realtime.unsubscribe();}catch(e){} loginScreen(); };
+    if (isAdmin()){
+      const loadUsers=async()=>{ try{ const L=await pb.collection('users').getFullList({sort:'name'});
+        document.getElementById('ulist').innerHTML=L.map(u=>`<div class="task"><div class="grow"><b>${esc(u.name||u.username)}</b> · ${esc(u.username)}${u.role==='admin'?' · Admin':''}</div>${u.id!==me().id?`<button class="btn sm ghost" data-udel="${u.id}">Löschen</button>`:''}</div>`).join(''); }catch(e){ document.getElementById('ulist').textContent='Nicht erreichbar (offline?)'; } };
+      loadUsers();
+      document.getElementById('ulist').addEventListener('click', async e=>{ const b=e.target.closest('[data-udel]'); if(!b) return;
+        if (b.dataset.sure!=='1'){ b.dataset.sure='1'; b.textContent='Wirklich?'; return; }
+        try{ await pb.collection('users').delete(b.dataset.udel); toast('Zugang gelöscht'); loadUsers(); }catch(ex){ toast('Löschen fehlgeschlagen'); } });
+      document.getElementById('uform').addEventListener('submit', async e=>{ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target));
+        const un=String(d.username||'').trim().toLowerCase();
+        if(!/^[a-z0-9._-]{3,40}$/.test(un)) return toast('Benutzername: 3–40 Zeichen, nur a–z, 0–9, . - _');
+        if(String(d.password||'').length<8) return toast('Passwort: mindestens 8 Zeichen');
+        try{ await pb.collection('users').create({username:un, name:String(d.name||un), password:d.password, passwordConfirm:d.password, role:d.admin?'admin':'familie', verified:true});
+          toast('Zugang angelegt'); e.target.reset(); loadUsers(); }catch(ex){ toast('Anlegen fehlgeschlagen – Benutzername schon vergeben?'); } });
+      document.getElementById('impBtn').onclick=()=>{ try{ const imp=migrate(JSON.parse(document.getElementById('impText').value)); imp.savedAt='0';
+          state=migrate(mergeState(imp, state)); save(); render(); toast('Daten übernommen'); }catch(e){ toast('Text ist kein gültiger Datenstand'); } };
+    }
+    document.getElementById('exportBtn').onclick=async()=>{
+      try{ await navigator.clipboard.writeText(JSON.stringify(state,null,1)); toast('In die Zwischenablage kopiert'); }catch(e){ toast('Kopieren nicht möglich'); }
+    };
+  }
+};
+
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew]'); if(!t) return;
+  const p0=P(), F=n=>p0.filters.find(f=>f.n===+n), now=new Date().toISOString();
+  if (t.dataset.close!==undefined){ if(e.target===t || t.tagName==='BUTTON') closeModal(); return; }
+  if (t.dataset.wgo){ wiz.step=Math.max(0,Math.min(6,wiz.step+ +t.dataset.wgo)); if(wiz.step===5&&!wiz.ev) wiz.step=4; render(); window.scrollTo(0,0); return; }
+  if (t.dataset.wstep){ wiz.step=+t.dataset.wstep; render(); return; }
+  if (t.dataset.swapin){ const out=p0.filters.find(f=>f.status==='in'), inn=F(t.dataset.swapin);
+    if(out){ out.status='dirty'; if(!out.uses) out.uses=1; }
+    inn.status='in'; inn.uses=(inn.uses||0)+1; if(!inn.since) inn.since=now;
+    p0.tasks.filter=now; logDose(p0, `Filter getauscht: ${out?out.n:'–'} → ${inn.n}`); closeModal(); save(); render(); toast(`Filter ${inn.n} eingesetzt`); return; }
+  if (t.dataset.fclean){ const f=F(t.dataset.fclean); f.cleanings++; f.lastClean=now; f.status='spare'; logDose(p0, `Filter ${f.n} gereinigt`, `${f.cleanings}. Reinigung`); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Reinigung`); return; }
+  if (t.dataset.fcleanin){ const f=F(t.dataset.fcleanin); f.cleanings++; f.lastClean=now; if(!f.since) f.since=now; p0.tasks.filter=now; logDose(p0, `Filter ${f.n} gereinigt (eingebaut)`, `${f.cleanings}. Reinigung`); closeModal(); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Reinigung`); return; }
+  if (t.dataset.fnew){ const f=F(t.dataset.fnew); f.since=f.status==='in'?now:null; f.cleanings=0; f.lastClean=null; f.uses=f.status==='in'?1:0; if(f.status==='dirty') f.status='spare'; logDose(p0, `Filter ${f.n} durch neuen ersetzt`); save(); render(); toast(`Filter ${f.n} neu`); return; }
+  if (t.dataset.done==='filter' && p0.filters?.length){ openSwap(); return; }
+  if (t.dataset.view){ e.preventDefault(); view=t.dataset.view; render(); window.scrollTo(0,0); }
+  else if (t.dataset.pool){ cur=t.dataset.pool; render(); }
+  else if (t.dataset.done){
+    const p=P(), k=t.dataset.done, task=TASKS.find(x=>x.k===k); p.tasks[k]=new Date().toISOString();
+    if (k==='weekly'){ logDose(p, 'Basic + UltraShock (Woche)', `${p.cfg.basicWeek??'?'} ml / ${p.cfg.usWeek} ml`); }
+    else if (k==='soft'){ logDose(p, 'SoftWater', `${round5(50*p.cfg.vol/1000)} ml`); }
+    else logDose(p, task.name+' erledigt');
+    if (k==='change'){ p.filledAt=p.tasks[k]; }
+    save(); render(); toast(task.name+' ✓');
+  }
+  else if (t.dataset.bath){
+    const n=+t.dataset.bath, ml=Math.max(10,5*n), p=P(), at=new Date().toISOString();
+    p.baths.push({at, persons:n}); if(p.baths.length>300) p.baths.shift();
+    logDose(p, `UltraShock nach Bad (${n} Pers.)`, `${ml} ml`);
+    save(); render(); toast(`Jetzt ${ml} ml UltraShock zugeben`);
+  }
+  else if (t.dataset.del){ const p=P(); p.log=p.log.filter(m=>m.id!==t.dataset.del); p.deleted=[...(p.deleted||[]),t.dataset.del]; save(); render(); }
+});
+
+initDb();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
