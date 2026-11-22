@@ -47,6 +47,14 @@ onRecordUpdateRequest((e) => {
       pools[k].log.sort((a, b) => (a.at < b.at ? -1 : 1));
       pools[k].deleted = o.deleted || [];
     }
+    if (Array.isArray(o.doses) && Array.isArray(pools[k].doses)) {
+      // Familienkonten dürfen keine Protokolleinträge löschen
+      const keys = {}; pools[k].doses.forEach(d => { keys[d.at + "|" + d.what] = 1; });
+      const del = {}; (o.deletedDoses || []).forEach(x => { del[x] = 1; });
+      o.doses.forEach(d => { if (d && !keys[d.at + "|" + d.what] && !del[d.at + "|" + d.what]) pools[k].doses.push(d); });
+      pools[k].doses.sort((a, b) => (a.at < b.at ? -1 : 1));
+      pools[k].deletedDoses = o.deletedDoses || [];
+    }
   }
   e.record.set("data", neu);
   return e.next();

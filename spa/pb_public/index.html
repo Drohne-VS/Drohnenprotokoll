@@ -293,8 +293,9 @@ function mergeState(srv, loc){
     const n=out.pools[k], o=older.pools?.[k]; if(!o) continue;
     const uni=(A,B,key)=>{ const m=new Map(); [...(B||[]),...(A||[])].forEach(x=>m.set(key(x),x)); return [...m.values()].sort((x,y)=>x.at<y.at?-1:1); };
     n.log = uni(n.log,o.log,x=>x.id||x.at).filter(x=>!(n.deleted||[]).includes(x.id));
-    n.doses = uni(n.doses,o.doses,x=>x.at+'|'+x.what).slice(-400);
-    n.baths = uni(n.baths,o.baths,x=>x.at).slice(-300);
+    n.deletedDoses = [...new Set([...(n.deletedDoses||[]),...(o.deletedDoses||[])])].slice(-300);
+    n.doses = uni(n.doses,o.doses,x=>x.at+'|'+x.what).filter(x=>!n.deletedDoses.includes(x.at+'|'+x.what)).slice(-400);
+    n.baths = uni(n.baths,o.baths,x=>x.at).filter(x=>!n.deletedDoses.includes('bath|'+x.at)).slice(-300);
     n.deleted = [...new Set([...(n.deleted||[]),...(o.deleted||[])])].slice(-200);
     n.log = n.log.filter(x=>!n.deleted.includes(x.id)).slice(-400);
     for (const t of Object.keys(o.tasks||{})) if (!n.tasks[t] || o.tasks[t]>n.tasks[t]) n.tasks[t]=o.tasks[t];
@@ -577,7 +578,7 @@ function vTasks(){
 
 function vHistory(){
   const p=P(), L=[...p.log].reverse();
-  const proto = p.doses.length?`<div class="card"><h2>Protokoll</h2><table>${[...p.doses].reverse().slice(0,60).map(d=>`<tr><td>${dtstr(d.at)}</td><td>${esc(d.what)}</td><td>${esc(d.amount)}</td><td class="small">${esc(d.by||'')}</td></tr>`).join('')}</table></div>`:'';
+  const proto = p.doses.length?`<div class="card"><h2>Protokoll</h2><table>${[...p.doses].reverse().slice(0,60).map(d=>`<tr><td>${dtstr(d.at)}</td><td>${esc(d.what)}</td><td>${esc(d.amount)}</td><td class="small">${esc(d.by||'')}</td>${isAdmin()?`<td><button class="btn sm ghost" data-ddel="${esc(d.at+'|'+d.what)}">✕</button></td>`:''}</tr>`).join('')}</table></div>`:'';
   if (!L.length) return `<div class="card"><p class="small">Noch keine Messungen.</p></div>${proto}`;
   const cell=(v,s,d)=>`<td class="c-${s||''}">${v==null?'–':fmt(v,d)}</td>`;
   return `<div class="card chart"><h2>pH-Verlauf</h2>${chart(p.log,'ph',[p.cfg.phMin,p.cfg.phMax],6.4,8.4)}</div>
@@ -585,7 +586,7 @@ function vHistory(){
   <div class="card"><h2>Alle Messungen</h2><div style="overflow-x:auto"><table><tr><th>Datum</th><th>pH</th><th>ClO₂</th><th>TA</th><th>°dH</th><th>Wer</th><th></th></tr>
   ${L.map(m=>{const e=evaluate(m,p);const s=k=>e.params.find(x=>x.k===k)?.s;return `<tr>${'<td>'+dtstr(m.at)+'</td>'}${cell(m.ph,s('ph'),2)}${cell(m.clo2,s('clo2'),2)}${cell(m.ta,s('ta'),0)}${cell(m.th!=null?dHfromMg(m.th):null,s('th'),1)}<td class="small">${esc(m.by||'')}</td><td>${isAdmin()?`<button class="btn sm ghost" data-del="${m.id}">✕</button>`:''}</td></tr>`}).join('')}
   </table></div></div>
-  ${p.doses.length?`<div class="card"><h2>Protokoll</h2><table>${[...p.doses].reverse().slice(0,60).map(d=>`<tr><td>${dtstr(d.at)}</td><td>${esc(d.what)}</td><td>${esc(d.amount)}</td><td class="small">${esc(d.by||'')}</td></tr>`).join('')}</table></div>`:''}`;
+  ${p.doses.length?`<div class="card"><h2>Protokoll</h2><table>${[...p.doses].reverse().slice(0,60).map(d=>`<tr><td>${dtstr(d.at)}</td><td>${esc(d.what)}</td><td>${esc(d.amount)}</td><td class="small">${esc(d.by||'')}</td>${isAdmin()?`<td><button class="btn sm ghost" data-ddel="${esc(d.at+'|'+d.what)}">✕</button></td>`:''}</tr>`).join('')}</table></div>`:''}`;
 }
 
 function chart(log, key, band, yMin, yMax){
@@ -892,7 +893,7 @@ const after = {
 };
 
 document.addEventListener('click',e=>{
-  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help]'); if(!t) return;
+  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-bathok],[data-ddel],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help]'); if(!t) return;
   const p0=P(), F=n=>p0.filters.find(f=>f.n===+n), now=new Date().toISOString();
   if (t.dataset.close!==undefined){ if(e.target===t || t.tagName==='BUTTON') closeModal(); return; }
   if (t.dataset.wgo){ wiz.step=Math.max(0,Math.min(6,wiz.step+ +t.dataset.wgo)); if(wiz.step===5&&!wiz.ev) wiz.step=4; render(); window.scrollTo(0,0); return; }
@@ -923,10 +924,29 @@ document.addEventListener('click',e=>{
     save(); render(); toast(task.name+' ✓');
   }
   else if (t.dataset.bath){
-    const n=+t.dataset.bath, ml=Math.max(10,5*n), p=P(), at=new Date().toISOString();
+    const n=+t.dataset.bath, ml=Math.max(10,5*n);
+    document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card" style="text-align:center">
+      <div class="small">Nach dem Bad mit ${n} Person${n>1?'en':''}</div>
+      <div style="font-size:15px;margin-top:10px">Jetzt einfüllen:</div>
+      <div style="font-size:44px;font-weight:700;color:var(--brand);line-height:1.2">${ml} ml</div>
+      <div style="font-size:18px;font-weight:600">UltraShock</div>
+      <p class="small">Mit dem Messbecher abmessen und bei laufenden Pumpen ins Wasser geben.</p>
+      <button class="btn full" data-bathok="${n}" style="padding:14px;font-size:16px">✓ Eingefüllt</button>
+      <button class="btn full ghost" data-close="1">Abbrechen – nichts eingetragen</button></div></div>`;
+  }
+  else if (t.dataset.bathok){
+    const n=+t.dataset.bathok, ml=Math.max(10,5*n), p=P(), at=new Date().toISOString();
     p.baths.push({at, persons:n}); if(p.baths.length>300) p.baths.shift();
-    logDose(p, `UltraShock nach Bad (${n} Pers.)`, `${ml} ml`);
-    save(); render(); toast(`Jetzt ${ml} ml UltraShock zugeben`);
+    p.doses.push({at, what:`UltraShock nach Bad (${n} Pers.)`, amount:`${ml} ml`, by:getWho()}); if(p.doses.length>400) p.doses.shift();
+    closeModal(); save(); render(); toast('Eingetragen ✓');
+  }
+  else if (t.dataset.ddel && isAdmin()){
+    if (t.dataset.sure!=='1'){ t.dataset.sure='1'; t.textContent='Löschen?'; return; }
+    const p=P(), key=t.dataset.ddel, d=p.doses.find(x=>x.at+'|'+x.what===key);
+    p.doses=p.doses.filter(x=>x.at+'|'+x.what!==key);
+    p.deletedDoses=[...(p.deletedDoses||[]), key];
+    if (d && /nach Bad/.test(d.what)){ p.baths=p.baths.filter(b=>b.at!==d.at); p.deletedDoses.push('bath|'+d.at); }
+    save(); render(); toast('Eintrag gelöscht');
   }
   else if (t.dataset.del && isAdmin()){ const p=P(); p.log=p.log.filter(m=>m.id!==t.dataset.del); p.deleted=[...(p.deleted||[]),t.dataset.del]; save(); render(); }
 });
