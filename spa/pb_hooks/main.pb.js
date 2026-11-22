@@ -34,6 +34,7 @@ onRecordUpdateRequest((e) => {
   let neu = {}, alt = {};
   try { neu = JSON.parse(e.record.getString("data") || "{}") || {}; } catch (err) { neu = {}; }
   try { alt = JSON.parse(e.record.original().getString("data") || "{}") || {}; } catch (err) { alt = {}; }
+  if ((neu.epoch || "") !== (alt.epoch || "")) throw new BadRequestError("Nur der Admin kann alle Daten löschen.");
   const pools = neu.pools || {};
   for (const k in pools) {
     const o = (alt.pools || {})[k];

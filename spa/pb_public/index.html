@@ -121,7 +121,7 @@ function defaultDoses(type, vol){
 }
 
 const TASKS = [
-  {k:'ph',     name:'pH-Wert messen',                     days:7,   start:1,  note:'Im Regelbetrieb 1× pro Woche, nach Neubefüllung 1–2× täglich.'},
+  {k:'ph',     name:'Wasser messen (pH + UltraShock)',     days:7,   start:1,  note:'Im Regelbetrieb 1× pro Woche, nach Neubefüllung täglich. Einmal pro Woche auch die Alkalinität. Am besten mit „Wasser messen – Schritt für Schritt“.'},
   {k:'weekly', name:'Wochendosis Basic + UltraShock',     days:7,   note:'Zwischen UltraShock und Basic mindestens 3 Stunden Abstand.'},
   {k:'filter', name:'Filter tauschen & reinigen',         days:14,  start:7,  note:'Sauberen Filter einsetzen, den alten mit Filterbrause und Filterreiniger säubern. Alle 1–2 Wochen, nach Neubefüllung 1–2× pro Woche.'},
   {k:'soft',   name:'SoftWater (monatlich)',              days:30,  note:'50 ml je 1.000 l, beim Nachfüllen anteilig.'},
@@ -286,6 +286,7 @@ function migrate(s){
 // Zwei Stände zusammenführen: Listen werden vereinigt, Einstellungen vom neueren Stand
 function mergeState(srv, loc){
   if (!srv) return loc; if (!loc) return srv;
+  if ((srv.epoch||'') !== (loc.epoch||'')) return srv; // Daten wurden neu gestartet: alter Gerätestand verfällt
   const newer = (loc.savedAt||'') >= (srv.savedAt||'') ? loc : srv, older = newer===loc ? srv : loc;
   const out = JSON.parse(JSON.stringify(newer));
   for (const k of Object.keys(out.pools||{})){
@@ -321,8 +322,10 @@ async function flush(){
   try{
     let srv=null;
     try{ const r = await pb.collection('spa_state').getFirstListItem('key="main"'); recId=r.id; srv=r.data; }catch(e){ if(e.status!==404) throw e; }
-    const merged = migrate(mergeState(srv, state));
+    const merged = migrate(state._reset ? JSON.parse(JSON.stringify(state)) : mergeState(srv, state));
     let r;
+    if (srv && (srv.epoch||'') !== (state.epoch||'') && !state._reset){ state=migrate(JSON.parse(JSON.stringify(srv))); dirty=false; keepLocal(); saving=false; softRender(); setSync('✓ aktuell'); return; }
+    delete merged._reset;
     if (recId) r = await pb.collection('spa_state').update(recId, {data:merged});
     else { r = await pb.collection('spa_state').create({key:'main', data:merged}); recId=r.id; }
     const fin = migrate(JSON.parse(JSON.stringify(r.data||merged))); // Stand, wie ihn der Server gespeichert hat
@@ -340,6 +343,7 @@ async function loadServer(){
   setSync('lädt …');
   try{
     const r = await pb.collection('spa_state').getFirstListItem('key="main"'); recId=r.id;
+    if ((r.data?.epoch||'') !== (state.epoch||'')) dirty=false;
     state = migrate(dirty ? mergeState(r.data, state) : JSON.parse(JSON.stringify(r.data)));
     keepLocal(); softRender(); setSync('✓ aktuell');
     if (dirty) flush();
@@ -348,7 +352,8 @@ async function loadServer(){
   }
   try{
     await pb.collection('spa_state').subscribe('*', ev=>{
-      if (ev.action==='delete' || saving || dirty) return;
+      if (ev.action==='delete' || saving) return;
+      if (dirty && (ev.record.data?.epoch||'')===(state.epoch||'')) return;
       if (JSON.stringify(ev.record.data)!==JSON.stringify(state)){ state=migrate(JSON.parse(JSON.stringify(ev.record.data))); recId=ev.record.id; keepLocal(); softRender(); }
     });
   }catch(e){}
@@ -396,6 +401,10 @@ async function start(){
   loadServer();
 }
 async function initDb(){ start(); }
+async function resetAll(){
+  state = migrate({ epoch: new Date().toISOString(), pools:{} }); state._reset=true;
+  save(); render(); toast('Alle Daten gelöscht – Neustart');
+}
 
 /* ================= UI ================= */
 const P = () => state.pools[cur];
@@ -405,6 +414,7 @@ const dtstr = iso => new Date(iso).toLocaleString('de-DE',{day:'2-digit',month:'
 function toast(t){ const el=document.createElement('div'); el.className='toast'; el.textContent=t; document.body.appendChild(el); setTimeout(()=>el.remove(),2200); }
 
 const ICONS = {
+  help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>',
   home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   measure:'<path d="M9 3h6M10 3v6L5 19a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-10V3"/>',
   tasks:'<path d="M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
@@ -412,7 +422,7 @@ const ICONS = {
   settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'
 };
 const NAV_ON = {wizard:'measure'};
-const NAV = [['home','Übersicht'],['measure','Messen'],['tasks','Aufgaben'],['history','Verlauf'],['settings','Einstellungen']];
+const NAV = [['home','Start'],['measure','Messen'],['tasks','Aufgaben'],['history','Verlauf'],['help','Hilfe'],['settings','Mehr']];
 
 function render(){
   document.getElementById('pools').innerHTML = ['whirlpool','swimspa'].map(k=>{
@@ -421,7 +431,7 @@ function render(){
   }).join('');
   document.getElementById('nav').innerHTML = NAV.map(([k,l])=>`<button class="${(NAV_ON[view]||view)===k?'on':''}" data-view="${k}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>${l}</button>`).join('');
   const m = document.getElementById('main');
-  m.innerHTML = ({home:vHome, measure:vMeasure, tasks:vTasks, history:vHistory, settings:vSettings, wizard:vWizard})[view]();
+  m.innerHTML = ({home:vHome, measure:vMeasure, tasks:vTasks, history:vHistory, settings:vSettings, wizard:vWizard, help:vHelp})[view]();
   after[view]?.();
 }
 
@@ -454,16 +464,24 @@ function vHome(){
   </div>
   ${ev?`<div class="card"><h2>Messwerte</h2><div class="tiles">${ev.params.map(x=>`<div class="tile ${x.s}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="t">${esc(x.t)}</div></div>`).join('')}</div></div>
   <div class="card"><h2>Was jetzt zu tun ist</h2>${recsHtml(ev.recs)}</div>`:''}
+  <button class="btn full sec" data-view="help" style="margin:0 0 12px">🆘 Problem mit dem Wasser? Hilfe</button>
   <div class="card"><h2>Gebadet?</h2><p class="small" style="margin-top:0">Nach jedem Bad UltraShock zugeben: 5 ml pro Person, mindestens 10 ml.</p>
     <div class="seg" id="bathSeg">${[1,2,3,4,5,6].map(n=>`<button data-bath="${n}">${n} Pers.</button>`).join('')}</div>
     ${p.baths.length?`<div class="hint">Zuletzt: ${dtstr(p.baths[p.baths.length-1].at)}, ${p.baths[p.baths.length-1].persons} Pers.</div>`:''}
   </div>
-  <div class="card"><h2>Fällige Aufgaben</h2>${due.length||fw.length||dirty.length?due.map(({t,st})=>`<div class="task"><span class="dot ${st.s}"></span><div class="grow">${t.name}<div class="small">${st.label}</div></div><button class="btn sm sec" data-done="${t.k}">Erledigt</button></div>`).join('')
+  <div class="card"><h2>Fällige Aufgaben</h2>${due.length||fw.length||dirty.length?due.map(({t,st})=>`<div class="task"><span class="dot ${st.s}"></span><div class="grow">${t.name}<div class="small">${st.label}${dueHint(p,t.k)}</div></div>${t.k==='ph'?`<button class="btn sm" data-view="wizard">Messen</button>`:`<button class="btn sm sec" data-done="${t.k}">Erledigt</button>`}</div>`).join('')
    + dirty.map(f=>`<div class="task"><span class="dot warn"></span><div class="grow">Filter ${f.n} reinigen<div class="small">liegt verschmutzt bereit</div></div><button class="btn sm sec" data-fclean="${f.n}">Gereinigt</button></div>`).join('')
    + fw.map(({f,w})=>`<div class="task"><span class="dot ${w.s}"></span><div class="grow">Filter ${f.n} ${w.s==='crit'?'ersetzen':'bald ersetzen'}<div class="small">${w.why}</div></div><button class="btn sm sec" data-view="tasks">Ansehen</button></div>`).join('')
    :'<p class="small">Nichts fällig. 👍</p>'}</div>`;
 }
 
+function dueHint(p,k){
+  const c=p.cfg;
+  if (k==='weekly') return `<br><b>${c.basicWeek??'?'} ml Basic</b> und <b>${c.usWeek} ml UltraShock</b> – mit mind. 3 Std. Abstand`;
+  if (k==='soft') return `<br><b>${round5(50*c.vol/1000)} ml SoftWater</b>`;
+  if (k==='change') return '<br>Grundreinigung mit SystemFlush, ablassen, neu befüllen, dann „Neubefüllung eintragen“';
+  return '';
+}
 function whoBanner(){
   return '';
   return `<div class="banner"><b>Wer benutzt dieses Gerät?</b> Dann sieht man im Protokoll, wer gemessen oder dosiert hat.
@@ -497,7 +515,13 @@ function vMeasure(){
     <label>Schaum</label><div class="seg" data-name="foam"><button type="button" data-val="nein" class="on">nein</button><button type="button" data-val="ja">ja</button></div>
     <button class="btn full" type="submit">Speichern &amp; bewerten</button>
   </form></div>
-  <div id="evalOut"></div>`;
+  <div id="evalOut"></div>
+  <div class="card"><h2>Zugabe nachtragen</h2><p class="small" style="margin-top:0">Für Mittel, die schon eingefüllt wurden – auch mit früherem Datum.</p>
+  <form id="dform"><div class="row"><div><label>Mittel</label><select name="what">${['UltraShock','Basic','SoftWater','pH-Minus','pH-Plus','Filterreiniger','Sonstiges'].map(x=>`<option>${x}</option>`).join('')}</select></div>
+  <div><label>Menge</label><input name="amount" placeholder="z. B. 50 ml"></div></div>
+  <label>Wann</label><input type="datetime-local" name="at" value="${now.toISOString().slice(0,16)}">
+  <label>Notiz</label><input name="note" placeholder="optional">
+  <button class="btn full sec">Zugabe speichern</button></form></div>`;
 }
 
 function filterCard(p){
@@ -526,10 +550,11 @@ function openSwap(){
 function openFilterEdit(n){
   const f=P().filters.find(x=>x.n===+n), d=iso=>iso?new Date(iso).toISOString().slice(0,10):'';
   document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card"><h2>Filter ${f.n} korrigieren</h2>
-   <label>Im Einsatz seit (erster Einbau)</label><input type="date" id="fe_since" value="${d(f.since)}">
+   <label>Im Einsatz seit (erster Einbau)</label><div class="row" style="grid-template-columns:1fr auto"><input type="date" id="fe_since" value="${d(f.since)}"><button class="btn ghost sm" data-clear="fe_since" type="button">✕ leeren</button></div>
    <div class="hint">Leer lassen, wenn der Filter noch nie benutzt wurde.</div>
    <div class="row"><div><label>Anzahl Reinigungen</label><input type="number" id="fe_clean" min="0" step="1" value="${f.cleanings}"></div>
-   <div><label>Zuletzt gereinigt</label><input type="date" id="fe_last" value="${d(f.lastClean)}"></div></div>
+   <div><label>Zuletzt gereinigt</label><input type="date" id="fe_last" value="${d(f.lastClean)}"><button class="btn ghost sm" data-clear="fe_last" type="button" style="margin-top:4px">✕ leeren</button></div></div>
+   <div class="hint">Steht „Anzahl Reinigungen“ auf 0, wird auch „Zuletzt gereinigt“ gelöscht.</div>
    <label>Zustand</label><select id="fe_status">${Object.entries(FSTAT).map(([k,v])=>`<option value="${k}" ${f.status===k?'selected':''}>${v[0]}</option>`).join('')}</select>
    <div class="hint">Wird ein anderer Filter auf „eingebaut“ gesetzt, kommt der bisher eingebaute auf „muss gereinigt werden“.</div>
    <button class="btn full" data-fsave="${f.n}">Speichern</button><button class="btn full ghost" data-close="1">Abbrechen</button></div></div>`;
@@ -618,6 +643,8 @@ function vSettings(){
    <label>Passwort (mind. 8 Zeichen)</label><input name="password" type="text" autocomplete="off">
    <label><input type="checkbox" name="admin" style="width:auto"> darf auch Zugänge verwalten (Admin)</label>
    <button class="btn full sec">Zugang anlegen</button></form></div>
+  <div class="card"><h2>Neustart</h2><p class="small" style="margin-top:0">Löscht alle Messungen, Zugaben, Aufgaben- und Filterstände für beide Becken. Zugänge bleiben.</p>
+   <button class="btn full ghost" id="resetBtn" style="color:var(--crit);border-color:var(--crit)">Alle Daten löschen</button></div>
   <div class="card"><h2>Daten übernehmen</h2><p class="small" style="margin-top:0">In der alten Version (Claude) unter Einstellungen „Daten als Text kopieren“ tippen und hier einfügen. Vorhandene Messungen bleiben erhalten, beides wird zusammengeführt.</p>
    <textarea id="impText" rows="4" placeholder="{ &quot;pools&quot;: … }"></textarea><button class="btn full sec" id="impBtn">Übernehmen</button></div>`:''}
   <div class="card"><h2>Daten</h2><p class="small">Gespeichert auf dem eigenen Server und auf jedem angemeldeten Gerät gleich. Ohne Netz wird auf dem Gerät gespeichert und später übertragen.</p>
@@ -625,6 +652,64 @@ function vSettings(){
   <div class="card small">Dosierungen und Abläufe nach den SpaBalancer-Wasserpflegeanleitungen (Basic, UltraShock, SoftWater). Alle Mengen sind Richtwerte, maßgeblich ist das Produktetikett. UltraShock wird mit dem PoolLab-Parameter „Chlordioxid“ gemessen.</div>`;
 }
 
+
+
+const HELP = [
+  {k:'trueb', t:'Wasser ist trüb', steps:[
+    'Messen: pH und UltraShock (Chlordioxid).',
+    'Filter tauschen bzw. reinigen – ein verstopfter Filter ist die häufigste Ursache.',
+    'Schockbehandlung: UltraShock 50 ml je 1.000 l bei laufenden Pumpen, mind. 8 Std. einwirken lassen.',
+    'Ist der pH über 8, zuerst pH senken – Kalk kann ausfallen und trübt das Wasser.',
+    'Am nächsten Tag messen: Ziel UltraShock mind. 0,3 mg/l. Bei Bedarf wiederholen, bis das Wasser klar bleibt.']},
+  {k:'geruch', t:'Wasser riecht', steps:[
+    'UltraShock-Dosierung erhöhen (Schockbehandlung 50 ml je 1.000 l).',
+    'Filter tauschen/reinigen.',
+    'Unterseite der Abdeckung prüfen und reinigen, wenn sie muffig riecht.',
+    'Am nächsten Tag messen und wiederholen, bis das Wasser geruchsneutral ist.']},
+  {k:'schaum', t:'Schaum auf dem Wasser', steps:[
+    'Vor dem Baden duschen – Duschgel, Haarspray, Kosmetik und Waschmittelreste in Badesachen sind die häufigste Ursache.',
+    'Filter reinigen.',
+    'Messen und Wasserwerte in Ordnung bringen.',
+    'Bleibt der Schaum trotz Pflege, ist ein Wasserwechsel fällig.']},
+  {k:'gruen', t:'Wasser ist grünlich', steps:[
+    'Filter prüfen bzw. reinigen.',
+    'UltraShock ca. 40–50 ml je 1.000 l zugeben, Pumpen laufen lassen.',
+    'Am Folgetag messen; reicht das nicht, Vorgang wiederholen.',
+    'Hält es an: Händler (Armstark) fragen.']},
+  {k:'phhoch', t:'pH-Wert steigt ständig', steps:[
+    'Alkalinität messen (Alkalinity-M-Tablette) – ist sie zu hoch, steigt der pH immer wieder.',
+    'pH-Minus in kleinen Schritten: erst die Hälfte der berechneten Menge, nach 2 Std. nachmessen.',
+    'In den ersten Tagen nach Neubefüllung ist das normal – dann ggf. 2× täglich korrigieren.',
+    'Hartes Wasser? SoftWater regelmäßig dosieren.']},
+  {k:'haut', t:'Haut juckt / Augen brennen', steps:[
+    'Sofort messen: UltraShock über 5 mg/l → nicht baden, Abdeckung offen lassen, warten bis der Wert sinkt.',
+    'pH prüfen – zu niedrig oder zu hoch reizt die Haut.',
+    'Nach dem Baden abduschen.',
+    'Beschwerden bleiben: nicht weiter baden und ärztlich abklären lassen.']},
+  {k:'kalk', t:'Weiße Ablagerungen / Kalkrand', steps:[
+    'pH messen – über 8 fällt Kalk aus. pH auf 7,2–7,6 senken.',
+    'Gesamthärte prüfen; über 12 °dH regelmäßig SoftWater dosieren.',
+    'Ränder mit einem für Acryl geeigneten Reiniger säubern, keine Scheuermittel.']},
+  {k:'messung', t:'Messwert wirkt unplausibel', steps:[
+    'Küvette gut ausspülen – Farbreste der letzten Messung verfälschen das Ergebnis.',
+    'Nach dem Einschalten ZERO gemacht? Mit klarem Probewasser wiederholen.',
+    'Tablette vollständig zerdrückt und aufgelöst? Countdown abgewartet?',
+    'Tabletten nicht mit den Fingern berühren, trocken lagern, Haltbarkeit prüfen.',
+    'Im Zweifel die Messung einfach wiederholen.']},
+  {k:'durchfluss', t:'Schwache Düsen / Fehlermeldung Durchfluss', steps:[
+    'Filter herausnehmen, sauberen Filter einsetzen.',
+    'Wasserstand prüfen – alle Skimmer müssen unter Wasser sein.',
+    'Ansaugöffnungen auf Blätter oder Fremdkörper prüfen.',
+    'Meldung bleibt: Armstark-Kundendienst anrufen.']},
+];
+function vHelp(){
+  return `<div class="card"><h2>🆘 Hilfe bei Problemen</h2><p class="small" style="margin-top:0">Was ist los? Antippen für die Schritte.</p>
+  ${HELP.map(h=>`<details style="border-top:1px solid var(--line);padding:10px 0"><summary style="font-weight:600;cursor:pointer">${h.t}</summary>
+   <ol style="margin:8px 0 0;padding-left:20px">${h.steps.map(x=>`<li style="margin-bottom:6px">${esc(x)}</li>`).join('')}</ol>
+   <button class="btn sm" data-view="wizard" style="margin-top:6px">Jetzt messen</button></details>`).join('')}
+  </div>
+  <div class="card small"><b>Kontakt Armstark:</b> Kundendienst Deutschland +49 8532 925713, support@armstark.de<br><br>Hinweise nach der SpaBalancer-Pflegeanleitung bzw. allgemeinen Whirlpool-Pflegeregeln. Im Zweifel gilt das Etikett des Mittels.</div>`;
+}
 
 /* ================= Geführte Messung ================= */
 let wiz = {step:0, v:{look:'klar',smell:'nein',foam:'nein'}, ev:null, checks:{}, saved:false};
@@ -714,6 +799,7 @@ function wizFinish(){
 /* ================= Events ================= */
 const after = {
   measure(){
+    after.measureExtra();
     document.querySelectorAll('.seg[data-name]').forEach(seg=>seg.addEventListener('click',e=>{
       const b=e.target.closest('button'); if(!b) return; seg.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
     }));
@@ -731,6 +817,14 @@ const after = {
       e.target.reset(); document.getElementById('evalOut').scrollIntoView({behavior:'smooth'});
       toast('Messung gespeichert');
     });
+  },
+  measureExtra(){
+    const f=document.getElementById('dform'); if(!f) return;
+    f.addEventListener('submit',e=>{ e.preventDefault(); const d=Object.fromEntries(new FormData(f)); const p=P(); const at=new Date(d.at||Date.now()).toISOString();
+      p.doses.push({at, what:d.what+(d.note?` (${d.note})`:''), amount:d.amount||'', by:getWho()}); p.doses.sort((a,b)=>a.at<b.at?-1:1); if(p.doses.length>400) p.doses.shift();
+      if (d.what==='Basic' && (!p.tasks.weekly || at>p.tasks.weekly)) p.tasks.weekly=at;
+      if (d.what==='SoftWater' && (!p.tasks.soft || at>p.tasks.soft)) p.tasks.soft=at;
+      save(); f.reset(); toast('Zugabe gespeichert'); });
   },
   tasks(){
 
@@ -787,6 +881,7 @@ const after = {
         if(String(d.password||'').length<8) return toast('Passwort: mindestens 8 Zeichen');
         try{ await pb.collection('users').create({username:un, name:String(d.name||un), password:d.password, passwordConfirm:d.password, role:d.admin?'admin':'familie', verified:true});
           toast('Zugang angelegt'); e.target.reset(); loadUsers(); }catch(ex){ toast('Anlegen fehlgeschlagen – Benutzername schon vergeben?'); } });
+      const rb=document.getElementById('resetBtn'); rb.onclick=()=>{ if(rb.dataset.sure!=='1'){ rb.dataset.sure='1'; rb.textContent='Wirklich ALLES löschen? Nochmal tippen'; return; } resetAll(); };
       document.getElementById('impBtn').onclick=()=>{ try{ const imp=migrate(JSON.parse(document.getElementById('impText').value)); imp.savedAt='0';
           state=migrate(mergeState(imp, state)); save(); render(); toast('Daten übernommen'); }catch(e){ toast('Text ist kein gültiger Datenstand'); } };
     }
@@ -797,7 +892,7 @@ const after = {
 };
 
 document.addEventListener('click',e=>{
-  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave]'); if(!t) return;
+  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help]'); if(!t) return;
   const p0=P(), F=n=>p0.filters.find(f=>f.n===+n), now=new Date().toISOString();
   if (t.dataset.close!==undefined){ if(e.target===t || t.tagName==='BUTTON') closeModal(); return; }
   if (t.dataset.wgo){ wiz.step=Math.max(0,Math.min(6,wiz.step+ +t.dataset.wgo)); if(wiz.step===5&&!wiz.ev) wiz.step=4; render(); window.scrollTo(0,0); return; }
@@ -810,10 +905,11 @@ document.addEventListener('click',e=>{
   if (t.dataset.fcleanin){ const f=F(t.dataset.fcleanin); f.cleanings++; f.lastClean=now; if(!f.since) f.since=now; p0.tasks.filter=now; logDose(p0, `Filter ${f.n} gereinigt (eingebaut)`, `${f.cleanings}. Reinigung`); closeModal(); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Reinigung`); return; }
   if (t.dataset.fnew){ const f=F(t.dataset.fnew); f.since=f.status==='in'?now:null; f.cleanings=0; f.lastClean=null; f.uses=f.status==='in'?1:0; if(f.status==='dirty') f.status='spare'; logDose(p0, `Filter ${f.n} durch neuen ersetzt`); save(); render(); toast(`Filter ${f.n} neu`); return; }
   if ((t.dataset.fedit||t.dataset.fsave) && !isAdmin()) return;
+  if (t.dataset.clear){ const el=document.getElementById(t.dataset.clear); if(el) el.value=''; return; }
   if (t.dataset.fedit){ openFilterEdit(t.dataset.fedit); return; }
   if (t.dataset.fsave){ const f=F(t.dataset.fsave), v=id=>document.getElementById(id).value, toIso=x=>x?new Date(x+'T12:00').toISOString():null;
     const st=v('fe_status'); if (st==='in' && f.status!=='in'){ const o=p0.filters.find(x=>x.status==='in'); if(o) o.status='dirty'; }
-    f.since=toIso(v('fe_since')); f.lastClean=toIso(v('fe_last')); f.cleanings=Math.max(0,parseInt(v('fe_clean'))||0); f.status=st; if(f.since&&!f.uses) f.uses=1;
+    f.since=toIso(v('fe_since')); f.lastClean=toIso(v('fe_last')); f.cleanings=Math.max(0,parseInt(v('fe_clean'))||0); if(!f.cleanings) f.lastClean=null; f.status=st; if(f.since&&!f.uses) f.uses=1;
     logDose(p0, `Filter ${f.n} korrigiert`); closeModal(); save(); render(); toast('Gespeichert'); return; }
   if (t.dataset.done==='filter' && p0.filters?.length){ openSwap(); return; }
   if (t.dataset.view){ e.preventDefault(); view=t.dataset.view; render(); window.scrollTo(0,0); }

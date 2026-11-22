@@ -16,3 +16,11 @@ eigener Render-Dienst `spa-pflege`, eigene Datenbank und Zugänge.
 - Neue Version: Cache-Version in `pb_public/sw.js` erhöhen, auf `spa-app` pushen
 - Lokal testen: `SETUP_CODE=TEST pocketbase serve --dir=<tmp> --migrationsDir=spa/pb_migrations --hooksDir=spa/pb_hooks --publicDir=spa/pb_public`
 - Geplant: Umzug zusammen mit der Drohnen-App auf einen privat bezahlten deutschen Server
+
+## Stand 22.11.2026
+- Neustart: Migration `1800000100_neustart.js` hat die Testdaten gelöscht (Zugänge blieben).
+  Datenstand hat eine `epoch`; Geräte mit anderem `epoch` verwerfen ihren alten lokalen Stand.
+  Admin kann unter „Mehr → Neustart“ jederzeit alles löschen (neue `epoch`); Familienkonten nicht (Server-Hook).
+- Einstellungen, Messungen löschen, Filter korrigieren: nur Admin (App + Server-Hook).
+- Hilfe-Seite (Problemlöser), Zugaben nachtragen mit Datum, fällige Aufgaben mit Mengen.
+- Offen: echte Push-Benachrichtigungen (Erinnerungen aufs Handy).
