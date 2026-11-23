@@ -279,14 +279,19 @@ function taskState(pool, t, now=Date.now()){
   const phase = startPhase(pool, now);
   let days = t.fixed ? t.days : (pool.cfg.intervals[t.k] ?? t.days);
   if (phase && t.start) days = Math.min(days, t.start);
-  const last = pool.tasks[t.k] ? new Date(pool.tasks[t.k]).getTime() : null;
-  if (!last) return {days, due:0, s:'warn', label:'noch nicht erledigt'};
-  const due = Math.ceil((last + days*DAY - now)/DAY);
-  const s = due<0 ? 'crit' : due<=1 ? 'warn' : 'ok';
-  const label = due<0 ? `${-due} Tag${-due===1?'':'e'} überfällig` : due===0 ? 'heute fällig' : due===1 ? 'morgen fällig' : `in ${due} Tagen`;
-  return {days, due, s, label};
+  let last = pool.tasks[t.k] ? new Date(pool.tasks[t.k]).getTime() : null;
+  if (!last && t.k==='change' && pool.filledAt) last = new Date(pool.filledAt).getTime();
+  // Noch nie erledigt: Messen sofort, alles andere ab Start der App-Nutzung zählen
+  const base = last ?? (t.k==='ph' ? now - days*DAY : new Date(pool.trackStart||now).getTime());
+  const dueAt = base + days*DAY;
+  const due = Math.floor((startOfDay(dueAt) - startOfDay(now))/DAY);
+  const s = due<0 ? 'crit' : due===0 ? 'warn' : 'ok';
+  const label = due<0 ? `${-due} Tag${-due===1?'':'e'} überfällig` : due===0 ? 'heute' : due===1 ? 'morgen' : `${wday(dueAt)} ${dshort(dueAt)}`;
+  return {days, due, s, label, dueAt, never:!last};
 }
-
+const startOfDay = t => { const d=new Date(t); d.setHours(0,0,0,0); return d.getTime(); };
+const wday = t => ['So','Mo','Di','Mi','Do','Fr','Sa'][new Date(t).getDay()];
+const dshort = t => new Date(t).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'});
 function filterWear(pool, f, now=Date.now()){
   const c=pool.cfg;
   const age = f.since ? (now-new Date(f.since).getTime())/(30.44*DAY) : null;
@@ -325,6 +330,7 @@ function migrate(s){
     const q=s.pools[k];
     if (!q.filters) q.filters=d.filters;
     if (!q.germs) q.germs=[];
+    if (!q.trackStart) q.trackStart=new Date().toISOString();
     q.cfg.bs = {...d.cfg.bs, ...(p.cfg?.bs||{})};
     if (!q.cfg.bs.v2){ q.cfg.bs.ctrlDays=7; q.cfg.bs.v2=1; } // wöchentliche Kontrolle (Wunsch 23.11.)
     q.filters.forEach(f=>{ if(f.useMs==null) f.useMs=0; if(f.rinses==null) f.rinses=0; if(f.status==='in' && !f.inAt) f.inAt=f.since||new Date().toISOString(); });
@@ -499,38 +505,54 @@ function banners(){
   return out.join('');
 }
 
+function homeTodo(p){
+  // alles Anstehende als einheitliche Liste: {when(Tage), s, title, sub, btn}
+  const L=[];
+  getTasks(p).forEach(t=>{ const st=taskState(p,t);
+    L.push({when:st.due, s:st.s, title:t.name, sub:dueHint(p,t.k).replace(/^<br>/,''), label:st.label,
+      btn: t.k==='ph'?`<button class="btn sm" data-view="wizard">Messen</button>` : t.k==='germ'?`<button class="btn sm sec" data-view="measure">Eintragen</button>` : `<button class="btn sm sec" data-done="${t.k}">Erledigt</button>`}); });
+  (p.filters||[]).forEach(f=>{
+    if (f.status==='dirty') L.push(deepDue(p,f)
+      ? {when:0, s:'warn', title:`Filter ${f.n} grundreinigen`, sub:`${fmt(useDays(f),0)} Einsatztage – mit FilterClean`, label:'heute', btn:`<button class="btn sm sec" data-fclean="${f.n}">Erledigt</button>`}
+      : {when:0, s:'warn', title:`Filter ${f.n} ausspülen`, sub:'liegt ausgebaut bereit', label:'heute', btn:`<button class="btn sm sec" data-frinse="${f.n}">Erledigt</button>`});
+    else if (f.status==='spare' && deepDue(p,f)) L.push({when:0, s:'warn', title:`Filter ${f.n} grundreinigen`, sub:`${fmt(useDays(f),0)} Einsatztage`, label:'heute', btn:`<button class="btn sm sec" data-fclean="${f.n}">Erledigt</button>`});
+    const w=filterWear(p,f); if (w.s==='crit') L.push({when:0, s:'warn', title:`Filter ${f.n} ersetzen`, sub:w.why, label:'bald', btn:`<button class="btn sm sec" data-view="tasks">Ansehen</button>`});
+    else if (f.status==='in'){ const rest=Math.ceil(p.cfg.filterDeepDays-useDays(f)); if (rest>0 && rest<=7) L.push({when:rest, s:'ok', title:`Filter ${f.n} grundreinigen`, sub:'beim nächsten Tausch', label:rest===1?'morgen':`in ${rest} Tagen`, btn:''}); }
+  });
+  return L.sort((a,b)=>a.when-b.when);
+}
+function todoRow(x){ return `<div class="task"><span class="dot ${x.s}"></span><div class="grow"><b>${x.title}</b> <span class="small" style="color:var(--${x.s==='crit'?'crit':x.s==='warn'?'warn':'mute'});font-weight:600">${x.label}</span>${x.sub?`<div class="small">${x.sub}</div>`:''}</div>${x.btn||''}</div>`; }
 function vHome(){
   const p=P(), last=p.log[p.log.length-1];
   const ev = last ? evaluate(last,p) : null;
-  const due = getTasks(p).map(t=>({t, st:taskState(p,t)})).filter(x=>x.st.s!=='ok').sort((a,b)=>a.st.due-b.st.due);
   const daysOld = last ? Math.floor((Date.now()-new Date(last.at))/DAY) : null;
-  const fw = (p.filters||[]).map(f=>({f, w:filterWear(p,f)})).filter(x=>x.w.s!=='ok');
-  const fdeep = (p.filters||[]).filter(f=>f.status!=='in' && deepDue(p,f));
-  const dirty = (p.filters||[]).filter(f=>f.status==='dirty');
   const sLabel = {ok:'Wasser in Ordnung', warn:'Handlungsbedarf', crit:'Sofort handeln', none:'Noch keine Messung'};
-  return `${banners()}${whoBanner()}
+  const all = homeTodo(p), now = all.filter(x=>x.when<=0), soon = all.filter(x=>x.when>0 && x.when<=7);
+  const later = all.filter(x=>x.when>7).length;
+  return `${banners()}
   ${isBS(p)?`<div class="small" style="margin:-4px 0 8px">Pflegeplan: <b>Bundschuh</b> · pH-Ziel ${fmt(p.cfg.bs.phMin,1)}–${fmt(p.cfg.bs.phMax,1)}</div>`:''}
   ${dropBanner(p)}
+  <div class="card"><h2>${now.length?`Heute dran <span class="tag ${now.some(x=>x.s==='crit')?'crit':'warn'}">${now.length}</span>`:'Heute dran'}</h2>
+    ${now.length?now.map(todoRow).join(''):'<p class="small" style="margin:0">✓ Heute ist nichts zu tun.</p>'}
+    ${soon.length?`<h3>Nächste 7 Tage</h3>${soon.map(todoRow).join('')}`:''}
+    ${later?`<p class="small" style="margin-bottom:0">${later} weitere Aufgabe${later>1?'n':''} später – siehe <a href="#" data-view="tasks">Aufgaben</a>.</p>`:''}
+  </div>
   <button class="btn full" data-view="wizard" style="margin:0 0 12px;padding:14px;font-size:16px">🧪 Wasser messen – Schritt für Schritt</button>
   <div class="card status ${ev?ev.status:'none'}">
     <span class="dot"></span>
     <div><b>${ev?sLabel[ev.status]:sLabel.none}</b><div class="small">${last?`Letzte Messung ${dtstr(last.at)}${daysOld>7?` – älter als eine Woche, bitte neu messen`:''}`:'Miss mit dem PoolLab 2.0 und trage die Werte unter „Messen“ ein.'}</div></div>
   </div>
-  ${ev?`<div class="card"><h2>Messwerte</h2><div class="tiles">${ev.params.map(x=>`<div class="tile ${x.s}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="t">${esc(x.t)}</div></div>`).join('')}</div></div>
-  <div class="card"><h2>Was jetzt zu tun ist</h2>${recsHtml(ev.recs)}</div>${normCard(last,p)}`:''}
-  <button class="btn full sec" data-view="help" style="margin:0 0 12px">🆘 Problem mit dem Wasser? Hilfe</button>
-  ${isBS(p)?`<div class="card"><h2>Wasser nachgefüllt?</h2><p class="small" style="margin-top:0">Nach Bundschuh: ${p.cfg.bs.minusG} g pH-Minus und ${p.cfg.bs.softPer5} ml SoftWater je 5 Minuten Nachfüllen.</p>
-    <button class="btn full sec" data-refill="1">💧 Nachfüllen eintragen</button></div>`:''}
+  ${ev?`<div class="card"><h2>Messwerte</h2><div class="tiles">${ev.params.map(x=>`<div class="tile ${x.s}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="t">${esc(x.t)}</div></div>`).join('')}</div>
+  <h3>Empfehlung zur letzten Messung</h3>${recsHtml(ev.recs)}</div>${normCard(last,p)}`:''}
   ${hygieneCard(p)}
-  <div class="card"><h2>Gebadet?</h2><p class="small" style="margin-top:0">${isBS(p)?'Nur notieren, wie viele gebadet haben – nach Bundschuh ohne Chemie. Hilft beim Hygiene-Check.':'Nach jedem Bad UltraShock zugeben: 5 ml pro Person, mindestens 10 ml.'}</p>
+  <div class="row" style="margin-bottom:12px">
+    ${isBS(p)?`<button class="btn sec" data-refill="1" style="padding:14px">💧 Wasser nachgefüllt</button>`:''}
+    <button class="btn sec" data-view="help" style="padding:14px">🆘 Problem? Hilfe</button>
+  </div>
+  <div class="card"><h2>Gebadet?</h2><p class="small" style="margin-top:0">${isBS(p)?'Nur notieren, wie viele gebadet haben – nach Bundschuh ohne Chemie.':'Nach jedem Bad UltraShock zugeben: 5 ml pro Person, mindestens 10 ml.'}</p>
     <div class="seg" id="bathSeg">${[1,2,3,4,5,6].map(n=>`<button data-bath="${n}">${n} Pers.</button>`).join('')}</div>
     ${p.baths.length?`<div class="hint">Zuletzt: ${dtstr(p.baths[p.baths.length-1].at)}, ${p.baths[p.baths.length-1].persons} Pers.</div>`:''}
-  </div>
-  <div class="card"><h2>Fällige Aufgaben</h2>${due.length||fw.length||dirty.length||fdeep.length?due.map(({t,st})=>`<div class="task"><span class="dot ${st.s}"></span><div class="grow">${t.name}<div class="small">${st.label}${dueHint(p,t.k)}</div></div>${t.k==='ph'?`<button class="btn sm" data-view="wizard">Messen</button>`:`<button class="btn sm sec" data-done="${t.k}">Erledigt</button>`}</div>`).join('')
-   + dirty.map(f=>deepDue(p,f)?`<div class="task"><span class="dot warn"></span><div class="grow">Filter ${f.n} grundreinigen<div class="small">${fmt(useDays(f),0)} Einsatztage – mit FilterClean</div></div><button class="btn sm sec" data-fclean="${f.n}">Grundgereinigt</button></div>`:`<div class="task"><span class="dot warn"></span><div class="grow">Filter ${f.n} ausspülen<div class="small">liegt ausgebaut bereit</div></div><button class="btn sm sec" data-frinse="${f.n}">Ausgespült</button></div>`).join('')
-   + fdeep.filter(f=>f.status==='spare').map(f=>`<div class="task"><span class="dot warn"></span><div class="grow">Filter ${f.n} grundreinigen<div class="small">${fmt(useDays(f),0)} Einsatztage</div></div><button class="btn sm sec" data-fclean="${f.n}">Grundgereinigt</button></div>`).join('')
-   + fw.map(({f,w})=>`<div class="task"><span class="dot ${w.s}"></span><div class="grow">Filter ${f.n} ${w.s==='crit'?'ersetzen':'bald ersetzen'}<div class="small">${w.why}</div></div><button class="btn sm sec" data-view="tasks">Ansehen</button></div>`).join('')
-   :'<p class="small">Nichts fällig. 👍</p>'}</div>`;
+  </div>`;
 }
 
 function dropBanner(p){
@@ -687,7 +709,7 @@ function closeModal(){ document.getElementById('modal').innerHTML=''; }
 function vTasks(){
   const p=P(), ph=startPhase(p);
   return `${banners()}${filterCard(p)}<div class="card"><h2>Pflegeplan – ${esc(p.name)}</h2>
-  ${getTasks(p).map(t=>{const st=taskState(p,t);return `<div class="task"><span class="dot ${st.s}"></span><div class="grow"><b>${t.name}</b> <span class="tag ${st.s}">${st.label}</span><div class="small">alle ${st.days} Tage${p.tasks[t.k]?` · zuletzt ${dstr(p.tasks[t.k])}`:''}<br>${esc(t.note)}</div></div><button class="btn sm sec" data-done="${t.k}">Erledigt</button></div>`}).join('')}
+  ${getTasks(p).map(t=>{const st=taskState(p,t);return `<div class="task"><span class="dot ${st.s}"></span><div class="grow"><b>${t.name}</b> <span class="tag ${st.s}">${st.due<0?st.label:st.due<=1?st.label:'fällig '+st.label}</span><div class="small">alle ${st.days} Tage · ${p.tasks[t.k]?`zuletzt ${dstr(p.tasks[t.k])}`:'noch nicht eingetragen'} · <a href="#" data-tdate="${t.k}">Datum ändern</a><br>${esc(t.note)}</div></div><button class="btn sm sec" data-done="${t.k}">Erledigt</button></div>`}).join('')}
   </div>
   <div class="card"><h2>Neubefüllung</h2>
     <p class="small">${p.filledAt?`Zuletzt befüllt am ${dstr(p.filledAt)}.`:'Noch kein Befülldatum hinterlegt.'} Startet die 14-tägige Startphase mit engmaschigem Plan.</p>
@@ -1074,7 +1096,7 @@ const after = {
 };
 
 document.addEventListener('click',e=>{
-  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wtick],[data-bathok],[data-ddel],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help],[data-frinse],[data-frinsein],[data-phquick],[data-phsave],[data-phdose],[data-refill],[data-refillok]'); if(!t) return;
+  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wtick],[data-bathok],[data-ddel],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help],[data-frinse],[data-frinsein],[data-phquick],[data-phsave],[data-phdose],[data-refill],[data-refillok],[data-tdate],[data-tdsave]'); if(!t) return;
   const p0=P(), F=n=>p0.filters.find(f=>f.n===+n), now=new Date().toISOString();
   if (t.dataset.close!==undefined){ if(e.target===t || t.tagName==='BUTTON') closeModal(); return; }
   if (t.dataset.wgo){ wiz.step=Math.max(0,Math.min(6,wiz.step+ +t.dataset.wgo)); if(wiz.step===5&&!wiz.ev) wiz.step=4; render(); window.scrollTo(0,0); return; }
@@ -1112,6 +1134,11 @@ document.addEventListener('click',e=>{
   if (t.dataset.fnew){ const f=F(t.dataset.fnew); f.since=f.status==='in'?now:null; f.cleanings=0; f.lastClean=null; f.uses=f.status==='in'?1:0; if(f.status==='dirty') f.status='spare'; logDose(p0, `Filter ${f.n} durch neuen ersetzt`); save(); render(); toast(`Filter ${f.n} neu`); return; }
   if ((t.dataset.fedit||t.dataset.fsave) && !isAdmin()) return;
   if (t.dataset.clear){ const el=document.getElementById(t.dataset.clear); if(el) el.value=''; return; }
+  if (t.dataset.tdate){ e.preventDefault(); const k=t.dataset.tdate, task=getTasks(p0).find(x=>x.k===k), cur=p0.tasks[k]?new Date(p0.tasks[k]).toISOString().slice(0,10):'';
+    document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card"><h2>${task.name}</h2><label>Zuletzt erledigt am</label><input type="date" id="td_val" value="${cur}">
+      <button class="btn full" data-tdsave="${k}">Speichern</button><button class="btn full ghost" data-close="1">Abbrechen</button></div></div>`; return; }
+  if (t.dataset.tdsave){ const v=document.getElementById('td_val').value; if(!v) return toast('Bitte ein Datum wählen');
+    p0.tasks[t.dataset.tdsave]=new Date(v+'T12:00').toISOString(); if(t.dataset.tdsave==='change') p0.filledAt=p0.tasks.change; closeModal(); save(); render(); toast('Gespeichert'); return; }
   if (t.dataset.fedit){ openFilterEdit(t.dataset.fedit); return; }
   if (t.dataset.fsave){ const f=F(t.dataset.fsave), v=id=>document.getElementById(id).value, toIso=x=>x?new Date(x+'T12:00').toISOString():null;
     const st=v('fe_status'); if (st==='in' && f.status!=='in'){ const o=p0.filters.find(x=>x.status==='in'); if(o){ if(o.inAt) o.useMs=(o.useMs||0)+(Date.now()-new Date(o.inAt).getTime()); o.inAt=null; o.status='dirty'; } }
