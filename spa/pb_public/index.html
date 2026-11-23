@@ -729,9 +729,9 @@ function wizNav(){
 function wizBtns(next='Weiter', back=true){
   return `<div class="row" style="margin-top:16px">${back&&wiz.step>0?`<button class="btn ghost" data-wgo="-1">Zurück</button>`:'<span></span>'}<button class="btn" data-wgo="1">${next}</button></div>`;
 }
-const KAM=[{n:1,wert:'pH-Wert',disp:'pH',tab:'Phenol Red',stab:'weiß',col:'#e9eef2',bd:'#9aa9b5',when:'jedes Mal'},
-  {n:2,wert:'UltraShock',disp:'Chlordioxid / ClO₂',tab:'DPD No. 1',stab:'blau',col:'#2f6fd6',bd:'#2f6fd6',when:'jedes Mal'},
-  {n:3,wert:'Alkalinität',disp:'Alkalinität / TA',tab:'Alkalinity-M',stab:'rot',col:'#d63b2f',bd:'#d63b2f',when:'1× pro Woche'}];
+const KAM=[{n:1,wert:'pH-Wert',disp:'PH (19-PH)',tab:'Phenol Red',stab:'weiß',col:'#e9eef2',bd:'#9aa9b5',when:'jedes Mal'},
+  {n:2,wert:'UltraShock',disp:'CLO2 (10-CLO2)',tab:'DPD No. 1',stab:'blau',col:'#2f6fd6',bd:'#2f6fd6',when:'jedes Mal'},
+  {n:3,wert:'Alkalinität',disp:'TA (2-TA)',tab:'Alkalinity-M',stab:'rot',col:'#d63b2f',bd:'#d63b2f',when:'1× pro Woche'}];
 function kdot(n){ const k=KAM[n-1]; return `<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${k.col};border:1px solid ${k.bd};vertical-align:-1px"></span>`; }
 function kamTable(){ return `<table style="margin:6px 0 8px"><tr><th>Kammer</th><th>Messwert</th><th>Tablette</th><th>Stab</th><th>Wann</th></tr>${KAM.map(k=>`<tr><td>${kdot(k.n)} ${k.n}</td><td>${k.wert}<div class="small">Display: ${k.disp}</div></td><td><b>${k.tab}</b></td><td>${k.stab}</td><td class="small">${k.when}</td></tr>`).join('')}</table>`; }
 function ticks(items, key){
@@ -760,13 +760,15 @@ function vWizard(){
     ],'s1')}
     </div>${wizBtns()}`;
   if (st===2) h=`<div class="card"><h2>3. Messwerte einstellen</h2>
-    <p class="small" style="margin-top:0">Jede Kammer hat oben eine eigene T-Taste. Darüber legst du fest, was in der Kammer gemessen wird.</p>
+    ${step('✓','Steht unten im Display schon <b>PH · CLO2 · TA</b>?','Dann ist alles richtig eingestellt – das Gerät merkt sich die Auswahl. Einfach weiter. (Ohne Alkalinität: T3 2× kurz drücken, dann steht dort „--“.)')}
+    <h3>Nur falls etwas anderes dasteht</h3>
     ${ticks([
-      ['T-Taste von <b>Kammer 1</b> 2 Sek. halten → im Menü <b>pH</b> wählen',''],
-      ['T-Taste von <b>Kammer 2</b> 2 Sek. halten → <b>Chlordioxid (ClO₂)</b> wählen','Das ist der UltraShock-Wert.'],
-      ['T-Taste von <b>Kammer 3</b> 2 Sek. halten → <b>Alkalinität (TA)</b> wählen','Nur 1× pro Woche. Sonst Kammer 3 leer lassen (T-Taste 2× kurz drücken löscht die Auswahl).'],
+      ['<b>T1</b> 2 Sek. halten → Liste öffnet sich','Blättern: <b>↑</b> = Taste mit den Wellen, <b>↓</b> = Taste mit WLAN/Bluetooth. Zurück: <b>ZERO</b> (←).'],
+      ['Zu <b>19-PH</b> (pH) blättern → <b>OK/TEST</b>','Der gewählte Eintrag ist grün markiert.'],
+      ['<b>T2</b> 2 Sek. halten → <b>10-CLO2</b> (Chl. Dioxide) → <b>OK/TEST</b>','Das ist der UltraShock-Wert.'],
+      ['<b>T3</b> 2 Sek. halten → <b>2-TA</b> (Alkalinity) → <b>OK/TEST</b>','Nur 1× pro Woche nötig. Ganz oben in der Liste steht „--“ für leer.'],
+      ['Kontrolle: unten steht <b>PH · CLO2 · TA</b>',''],
     ],'s2')}
-    ${step('!','Verlangt das Gerät eine andere Kammer?','Manche Werte gehen nur in einer bestimmten Kammer. Dann der Anzeige folgen und die Tablette in genau diese Kammer geben.')}
     </div>${wizBtns()}`;
   if (st===3) h=`<div class="card"><h2>4. Tabletten zugeben & messen</h2>
     <p class="small" style="margin-top:0">Der Reihe nach abhaken:</p>
@@ -774,7 +776,7 @@ function vWizard(){
       [`${kdot(1)} <b>Kammer 1:</b> 1 Tablette <b>Phenol Red</b> rein`, 'Mit dem <b>weißen</b> Stab kräftig zerdrücken und rühren, bis nichts mehr ungelöst ist. Deckel 1 schließen.'],
       [`${kdot(2)} <b>Kammer 2:</b> 1 Tablette <b>DPD No. 1</b> rein`, 'Mit dem <b>blauen</b> Stab zerdrücken und rühren, bis gelöst. Deckel 2 schließen.'],
       [`${kdot(3)} <b>Kammer 3:</b> 1 Tablette <b>Alkalinity-M</b> rein`, 'Nur wenn Alkalinität gemessen wird. Mit dem <b>roten</b> Stab zerdrücken und rühren. Deckel 3 schließen.'],
-      ['<b>T-Taste jeder befüllten Kammer</b> 1× kurz drücken','Damit bestätigst du: Tablette ist gelöst. Bei der Kammer startet ein Countdown.'],
+      ['<b>T1, T2, T3</b> je 1× kurz drücken (jede befüllte Kammer)','Damit bestätigst du: Tablette ist gelöst. Bei der Kammer startet ein Countdown.'],
       ['<b>OK/TEST</b> drücken ⚠️','Wichtig! Ohne OK/TEST kommt kein Ergebnis – das Gerät wartet sonst einfach.'],
       ['Warten, bis die Werte im Display stehen','Nicht abbrechen. Dauert es mehrere Minuten ohne Ergebnis, fehlt meist ein Tastendruck: T-Tasten und OK/TEST prüfen.'],
     ],'s3')}
@@ -782,8 +784,8 @@ function vWizard(){
   if (st===4){ const v=wiz.v, seg=(k,opts)=>`<div class="seg" data-wseg="${k}">${opts.map(([val,l])=>`<button type="button" data-val="${val}" class="${v[k]===val?'on':''}">${l}</button>`).join('')}</div>`;
     h=`<div class="card"><h2>5. Werte eintragen</h2>
     <p class="small" style="margin-top:0">Die Werte genau so abtippen, wie sie im Display stehen.</p>
-    <label>${kdot(1)} Kammer 1 · pH-Wert <span class="small">(Display: pH)</span></label><input data-wv="ph" inputmode="decimal" value="${v.ph??''}" placeholder="z. B. 7,4">
-    <label>${kdot(2)} Kammer 2 · UltraShock <span class="small">(Display: Chlordioxid / ClO₂, in mg/l)</span></label><input data-wv="clo2" inputmode="decimal" value="${v.clo2??''}" placeholder="z. B. 0,40">
+    <label>${kdot(1)} Kammer 1 · pH-Wert <span class="small">(Display: PH)</span></label><input data-wv="ph" inputmode="decimal" value="${v.ph??''}" placeholder="z. B. 7,4">
+    <label>${kdot(2)} Kammer 2 · UltraShock <span class="small">(Display: CLO2, in mg/l)</span></label><input data-wv="clo2" inputmode="decimal" value="${v.clo2??''}" placeholder="z. B. 0,40">
     <label>${kdot(3)} Kammer 3 · Alkalinität <span class="small">(Display: TA, in mg/l – nur wenn gemessen)</span></label><input data-wv="ta" inputmode="decimal" value="${v.ta??''}" placeholder="z. B. 90">
     <label>Wie sieht das Wasser aus?</label>${seg('look',[['klar','klar'],['leicht','leicht trüb'],['trüb','trüb'],['grün','grünlich']])}
     <label>Riecht es?</label>${seg('smell',[['nein','neutral'],['ja','riecht']])}
