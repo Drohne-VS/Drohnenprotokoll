@@ -793,7 +793,11 @@ function vSettings(){
   </fieldset></form></div>
   <div class="card"><h2>Mein Zugang</h2><p class="small" style="margin-top:0">Angemeldet als <b>${esc(getWho())}</b> (${esc(me()?.username||'')})${isAdmin()?' · Admin':''}</p>
    <button class="btn ghost" id="logoutBtn">Abmelden</button></div>
-  ${isAdmin()?`<div class="card"><h2>Zugänge der Familie</h2><div id="ulist" class="small">lädt …</div>
+  ${isAdmin()?`<div class="card"><h2>Zugänge der Familie</h2>
+   <div class="banner" style="margin-bottom:10px"><b>Adresse für die Familie:</b><br><span style="font-size:16px;font-weight:600;word-break:break-all" id="appUrl">${esc(location.origin)}</span>
+    <div class="row" style="margin-top:8px"><button class="btn sm" id="copyUrl" type="button">Adresse kopieren</button><button class="btn sm sec" id="copyInvite" type="button">Einladung kopieren</button></div>
+    <div class="small" style="margin-top:6px">So installieren: Adresse in Safari öffnen → Teilen-Symbol → „Zum Home-Bildschirm“ → mit Benutzername und Passwort anmelden.</div></div>
+   <div id="ulist" class="small">lädt …</div>
    <h3>Neuer Zugang</h3><form id="uform"><div class="row"><div><label>Name</label><input name="name" placeholder="z. B. Lena"></div><div><label>Benutzername</label><input name="username" autocapitalize="none" placeholder="lena"></div></div>
    <label>Passwort (mind. 8 Zeichen)</label><input name="password" type="text" autocomplete="off">
    <label><input type="checkbox" name="admin" style="width:auto"> darf auch Zugänge verwalten (Admin)</label>
@@ -1065,6 +1069,9 @@ const after = {
     });
     document.getElementById('logoutBtn').onclick=()=>{ pb.authStore.clear(); try{pb.realtime.unsubscribe();}catch(e){} loginScreen(); };
     if (isAdmin()){
+      const cp=async(txt,msg)=>{ try{ await navigator.clipboard.writeText(txt); toast(msg); }catch(e){ toast('Kopieren nicht möglich – Adresse bitte abschreiben'); } };
+      document.getElementById('copyUrl').onclick=()=>cp(location.origin,'Adresse kopiert ✓');
+      document.getElementById('copyInvite').onclick=()=>cp(`Unsere Whirlpool-App: ${location.origin}\n\nSo geht's: Den Link in Safari öffnen, unten auf das Teilen-Symbol tippen, „Zum Home-Bildschirm“ wählen. Dann die App öffnen und mit deinem Benutzernamen und Passwort anmelden (bekommst du von mir).`,'Einladung kopiert ✓ – z. B. per WhatsApp schicken');
       const loadUsers=async()=>{ try{ const L=await pb.collection('users').getFullList({sort:'name'});
         document.getElementById('ulist').innerHTML=L.map(u=>`<div class="task"><div class="grow"><b>${esc(u.name||u.username)}</b> · ${esc(u.username)}${u.role==='admin'?' · Admin':''}</div>${u.id!==me().id?`<button class="btn sm sec" data-uedit="${u.id}" data-uname="${esc(u.name||'')}" data-urole="${u.role}" data-uuser="${esc(u.username)}">Bearbeiten</button> <button class="btn sm ghost" data-udel="${u.id}">Löschen</button>`:'<span class="small">(du)</span>'}</div>`).join(''); }catch(e){ document.getElementById('ulist').textContent='Nicht erreichbar (offline?)'; } };
       loadUsers();
