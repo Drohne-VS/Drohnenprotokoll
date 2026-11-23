@@ -1066,15 +1066,18 @@ const after = {
     document.getElementById('logoutBtn').onclick=()=>{ pb.authStore.clear(); try{pb.realtime.unsubscribe();}catch(e){} loginScreen(); };
     if (isAdmin()){
       const loadUsers=async()=>{ try{ const L=await pb.collection('users').getFullList({sort:'name'});
-        document.getElementById('ulist').innerHTML=L.map(u=>`<div class="task"><div class="grow"><b>${esc(u.name||u.username)}</b> · ${esc(u.username)}${u.role==='admin'?' · Admin':''}</div>${u.id!==me().id?`<button class="btn sm sec" data-upw="${u.id}" data-uname="${esc(u.name||u.username)}">Passwort neu</button> <button class="btn sm ghost" data-udel="${u.id}">Löschen</button>`:''}</div>`).join(''); }catch(e){ document.getElementById('ulist').textContent='Nicht erreichbar (offline?)'; } };
+        document.getElementById('ulist').innerHTML=L.map(u=>`<div class="task"><div class="grow"><b>${esc(u.name||u.username)}</b> · ${esc(u.username)}${u.role==='admin'?' · Admin':''}</div>${u.id!==me().id?`<button class="btn sm sec" data-uedit="${u.id}" data-uname="${esc(u.name||'')}" data-urole="${u.role}" data-uuser="${esc(u.username)}">Bearbeiten</button> <button class="btn sm ghost" data-udel="${u.id}">Löschen</button>`:'<span class="small">(du)</span>'}</div>`).join(''); }catch(e){ document.getElementById('ulist').textContent='Nicht erreichbar (offline?)'; } };
       loadUsers();
       document.getElementById('ulist').addEventListener('click', async e=>{
-        const pw=e.target.closest('[data-upw]');
-        if (pw){ document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card"><h2>Neues Passwort für ${pw.dataset.uname}</h2>
-            <label>Neues Passwort (mind. 8 Zeichen)</label><input id="npw" type="text" autocomplete="off">
-            <button class="btn full" id="npwOk">Speichern</button><button class="btn full ghost" data-close="1">Abbrechen</button></div></div>`;
-          document.getElementById('npwOk').onclick=async()=>{ const v=document.getElementById('npw').value; if(v.length<8) return toast('Mindestens 8 Zeichen');
-            try{ await pb.collection('users').update(pw.dataset.upw,{password:v, passwordConfirm:v}); closeModal(); toast('Passwort geändert ✓'); }catch(ex){ toast('Ändern fehlgeschlagen'); } };
+        const ue=e.target.closest('[data-uedit]');
+        if (ue){ document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card"><h2>Zugang „${ue.dataset.uuser}“ bearbeiten</h2>
+            <label>Name</label><input id="ue_name" value="${ue.dataset.uname}">
+            <label>Rolle</label><select id="ue_role"><option value="familie" ${ue.dataset.urole!=='admin'?'selected':''}>Familie (Alltag: messen, dosieren, Filter)</option><option value="admin" ${ue.dataset.urole==='admin'?'selected':''}>Admin (darf auch Einstellungen & Zugänge ändern)</option></select>
+            <label>Neues Passwort <span class="small">(leer lassen = unverändert)</span></label><input id="ue_pw" type="text" autocomplete="off">
+            <button class="btn full" id="ueOk">Speichern</button><button class="btn full ghost" data-close="1">Abbrechen</button></div></div>`;
+          document.getElementById('ueOk').onclick=async()=>{ const pwv=document.getElementById('ue_pw').value, data={name:document.getElementById('ue_name').value.trim()||ue.dataset.uuser, role:document.getElementById('ue_role').value};
+            if (pwv){ if(pwv.length<8) return toast('Passwort: mindestens 8 Zeichen'); data.password=pwv; data.passwordConfirm=pwv; }
+            try{ await pb.collection('users').update(ue.dataset.uedit, data); closeModal(); toast('Gespeichert ✓'); loadUsers(); }catch(ex){ toast('Speichern fehlgeschlagen'); } };
           return; }
         const b=e.target.closest('[data-udel]'); if(!b) return;
         if (b.dataset.sure!=='1'){ b.dataset.sure='1'; b.textContent='Wirklich?'; return; }
