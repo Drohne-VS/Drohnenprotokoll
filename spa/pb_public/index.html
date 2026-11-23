@@ -129,6 +129,21 @@ const TASKS = [
   {k:'change', name:'Wasserwechsel + Grundreinigung',     days:182, note:'Idealerweise alle 6, spätestens alle 12 Monate. Vorher Grundreinigung mit SystemFlush, danach Neubefüllung starten.'},
 ];
 
+const isBS = p => p.cfg.plan==='bundschuh';
+function effCfg(p, mode){ // mode 'norm' = SpaBalancer/Normwerte
+  const c=p.cfg; if (mode==='norm' || !isBS(p)) return c;
+  const b=c.bs; return {...c, phMin:b.phMin, phMax:b.phMax, phCritLow:b.phCritLow, phCrit:b.phCrit, usWeek:b.usWeek, basicWeek:b.basicWeek};
+}
+function getTasks(p){
+  if (!isBS(p)) return TASKS.filter(t=>t.k!=='ctrl');
+  const b=p.cfg.bs;
+  return TASKS.filter(t=>t.k!=='soft').map(t=>{
+    if (t.k==='ph') return {...t, name:'Kontrollmessung mit PoolLab', days:b.ctrlDays, fixed:true, start:null, note:`Alle ${b.ctrlDays} Tage pH, UltraShock und Alkalinität messen – als Kontrolle. Mit „Wasser messen – Schritt für Schritt“.`};
+    if (t.k==='weekly') return {...t, name:`Wochendosis ${b.usWeek} ml UltraShock + ${b.basicWeek} ml Basic`, note:'Zwischen UltraShock und Basic mindestens 3 Stunden Abstand.'};
+    if (t.k==='filter') return {...t, name:'Filter tauschen & ausspülen', days:b.rinseDays, fixed:true, start:null, note:`Sauberen Filter einsetzen, den ausgebauten nur ausspülen. Grundreinigung mit FilterClean erst nach ${p.cfg.filterDeepDays} Einsatztagen – die App zählt das je Filter mit.`};
+    return t;
+  });
+}
 function defaultPool(type){
   const vol = type==='whirlpool'?1325:8000;
   return {
@@ -136,7 +151,9 @@ function defaultPool(type){
     name: type==='whirlpool'?'Cameo':'Swim-Spa',
     cfg: {
       vol, volConfirmed: type==='whirlpool',
-      filterLifeMonths:12, filterMaxClean:25,
+      filterLifeMonths:12, filterMaxClean:25, filterDeepDays:90,
+      plan: type==='whirlpool' ? 'bundschuh' : 'spabalancer',
+      bs: { phMin:6.5, phMax:6.8, phCritLow:6.2, phCrit:7.6, minusG:30, usWeek:30, basicWeek:30, softPer5:40, ctrlDays:14, rinseDays:14, dropDays:3 },
       ...defaultDoses(type, vol), dosesCustom:false,
       shockPer1000: 50,          // Schockbehandlung ml je 1.000 l (8 h einwirken)
       phMinusGper01: 10,         // g pH-Minus je 0,1 pH je 1.000 l (Etikett!)
@@ -149,7 +166,8 @@ function defaultPool(type){
     },
     filledAt:null,
     tasks:{},          // k -> ISO zuletzt erledigt
-    filters: type==='whirlpool' ? [1,2,3].map(n=>({n, status:n===1?'in':'spare', since:null, cleanings:0, lastClean:null, uses:0})) : [],
+    filters: type==='whirlpool' ? [1,2,3].map(n=>({n, status:n===1?'in':'spare', since:null, cleanings:0, lastClean:null, uses:0, inAt:null, useMs:0, rinses:0})) : [],
+    phDrop:null,       // {start, doses:[ISO], ended}
     log:[],            // Messungen
     baths:[],          // {at, persons}
     doses:[],          // {at, what, amount}
@@ -170,14 +188,19 @@ function rate(val, okLo, okHi, critLo, critHi){
 }
 const worst = arr => arr.includes('crit')?'crit':arr.includes('warn')?'warn':arr.some(Boolean)?'ok':'none';
 
-function evaluate(m, pool, now=Date.now()){
-  const c = pool.cfg, V = c.vol/1000, phase = startPhase(pool, now);
+function evaluate(m, pool, mode, now=Date.now()){
+  const bsMode = isBS(pool) && mode!=='norm';
+  const c = effCfg(pool, mode), V = c.vol/1000, phase = startPhase(pool, now), b = pool.cfg.bs;
   const P = [], R = [];
   // pH
   if (m.ph!=null){
     const s = rate(m.ph, c.phMin, c.phMax, c.phCritLow, c.phCrit-0.0001);
-    P.push({k:'ph', l:'pH-Wert', v:fmt(m.ph,2), s, t: s==='ok'?`Ziel ${fmt(c.phMin,1)}–${fmt(c.phMax,1)}` : m.ph>c.phMax ? (m.ph>=c.phCrit?'zu hoch – Kalkausfall möglich':'leicht zu hoch') : 'zu niedrig'});
-    if (m.ph>c.phMax){
+    P.push({k:'ph', l:'pH-Wert', v:fmt(m.ph,2), s, t: s==='ok'?`Ziel ${fmt(c.phMin,1)}–${fmt(c.phMax,1)}` : m.ph>c.phMax ? (bsMode?`über Ziel ${fmt(c.phMin,1)}–${fmt(c.phMax,1)}`:(m.ph>=c.phCrit?'zu hoch – Kalkausfall möglich':'leicht zu hoch')) : (bsMode&&m.ph<c.phCritLow?'zu sauer':'zu niedrig')});
+    if (bsMode && m.ph>c.phMax){
+      R.push({s:m.ph>=c.phCrit?'crit':'warn', t:'pH-Minus zugeben', a:`${fmt(b.minusG)} g`, d:`Nach Bundschuh: ${b.minusG} g bei laufenden Pumpen. Am nächsten Tag nur den pH messen (Kammer 1) – liegt er noch über ${fmt(c.phMax,1)}, wieder ${b.minusG} g. Höchstens ${b.dropDays} Tage hintereinander.`});
+    } else if (bsMode && m.ph<c.phMin){
+      R.push({s:m.ph<c.phCritLow?'crit':'warn', t:'Kein pH-Minus mehr geben', a:'', d:m.ph<c.phCritLow?`pH unter ${fmt(c.phCritLow,1)} ist zu sauer (Korrosion, Hautreizung möglich). Auch beim Nachfüllen kein pH-Minus. Bundschuh/Armstark fragen – ggf. Alka-Plus zugeben.`:'Der pH ist unter dem Ziel. Beim nächsten Nachfüllen das pH-Minus weglassen und in ein paar Tagen erneut messen.'});
+    } else if (m.ph>c.phMax){
       const g = Math.max(5, Math.round((m.ph-7.3)/0.1*c.phMinusGper01*V));
       R.push({s:m.ph>=c.phCrit?'crit':'warn', t:'pH-Minus zugeben', a:`ca. ${fmt(g)} g`, d:`Zielwert ca. 7,3. Erst die Hälfte (${fmt(Math.round(g/2))} g) bei laufenden Pumpen zugeben, nach 2 Stunden nachmessen und den Rest aus der Differenz abschätzen.`});
     } else if (m.ph<c.phMin){
@@ -212,30 +235,31 @@ function evaluate(m, pool, now=Date.now()){
   }
   // Alkalinität
   if (m.ta!=null){
-    const s = rate(m.ta, c.taMin, c.taMax, 50, 180);
+    const s = bsMode ? '' : rate(m.ta, c.taMin, c.taMax, 50, 180);
+    if (bsMode){ P.push({k:'ta', l:'Alkalinität', v:fmt(m.ta)+' mg/l', s:'', t:'nur zur Kontrolle'}); } else {
     P.push({k:'ta', l:'Alkalinität', v:fmt(m.ta)+' mg/l', s, t:s==='ok'?`Ziel ${c.taMin}–${c.taMax}`:(m.ta<c.taMin?'zu niedrig – pH schwankt':'zu hoch – pH steigt')});
     if (m.ta<c.taMin){ const g=Math.max(5,Math.round((100-m.ta)/10*c.taPlusGper10*V));
       R.unshift({s:m.ta<50?'crit':'warn', t:'Alkalinität anheben (zuerst!)', a:`ca. ${fmt(g)} g Alka-Plus`, d:`Ziel ca. 100 mg/l. Mittel: „Alka-Plus“ (Natriumhydrogencarbonat) – ist nicht im SpaBalancer-Set, gibt es im Whirlpool-Fachhandel. Erst die Hälfte (${fmt(Math.round(g/2))} g) in einem Eimer Wasser auflösen und bei laufenden Pumpen zugeben, am nächsten Tag Alkalinität und pH neu messen. Den pH erst danach korrigieren – pH-Minus senkt die Alkalinität zusätzlich.`}); }
     if (m.ta>c.taMax) R.push({s:'warn', t:'Alkalinität senken', a:'', d:'Mit pH-Minus in kleinen Schritten senken, das senkt auch die Alkalinität.'});
-  }
+  } }
   // Härte
   if (m.th!=null){
     const dh = dHfromMg(m.th), s = dh>c.hardMax+6?'crit':dh>c.hardMax?'warn':'ok';
     P.push({k:'th', l:'Gesamthärte', v:fmt(dh,1)+' °dH', s, t:s==='ok'?'weich':'hart'});
-    if (dh>c.hardMax) R.push({s:'warn', t:'SoftWater verwenden', a:`${fmt(round5(50*V))} ml/Monat`, d:'Hartes Wasser fördert Kalk und Biofilm. SoftWater regelmäßig dosieren und den pH-Wert im Bereich halten.'});
+    if (dh>c.hardMax && !bsMode) R.push({s:'warn', t:'SoftWater verwenden', a:`${fmt(round5(50*V))} ml/Monat`, d:'Hartes Wasser fördert Kalk und Biofilm. SoftWater regelmäßig dosieren und den pH-Wert im Bereich halten.'});
   }
   if (m.temp!=null){
     const s = m.temp>40?'warn':'ok';
     P.push({k:'temp', l:'Temperatur', v:fmt(m.temp,1)+' °C', s, t:s==='ok'?'':'über 40 °C'});
   }
   if (R.some(r=>/UltraShock/.test(r.t)) ) R.push({s:'ok', t:'Abstand beachten', a:'', d:'Basic frühestens 3 Stunden nach UltraShock zugeben (und umgekehrt).'});
-  if (!R.length && P.length) R.push({s:'ok', t:'Alles im grünen Bereich', a:'', d:'Keine Zugabe nötig. Regelpflege laut Aufgabenliste fortführen.'});
+  if (!R.length && P.length) R.push({s:'ok', t:'Alles im grünen Bereich', a:'', d:bsMode?'Keine Zugabe nötig. Weiter nach Bundschuh-Plan (Wochendosis, beim Nachfüllen pH-Minus + SoftWater).':'Keine Zugabe nötig. Regelpflege laut Aufgabenliste fortführen.'});
   return {params:P, recs:R, status:worst(P.map(p=>p.s))};
 }
 
 function taskState(pool, t, now=Date.now()){
   const phase = startPhase(pool, now);
-  let days = pool.cfg.intervals[t.k] ?? t.days;
+  let days = t.fixed ? t.days : (pool.cfg.intervals[t.k] ?? t.days);
   if (phase && t.start) days = Math.min(days, t.start);
   const last = pool.tasks[t.k] ? new Date(pool.tasks[t.k]).getTime() : null;
   if (!last) return {days, due:0, s:'warn', label:'noch nicht erledigt'};
@@ -254,7 +278,9 @@ function filterWear(pool, f, now=Date.now()){
   const why = r>=0.8 ? (rA>=rC ? `Alter ${fmt(age,0)} von ${c.filterLifeMonths} Monaten` : `${f.cleanings} von ${c.filterMaxClean} Reinigungen`) : '';
   return {age, r, s, why};
 }
-const FSTAT = {in:['eingebaut','ok'], spare:['sauber, bereit','ok'], dirty:['muss gereinigt werden','warn']};
+const FSTAT = {in:['eingebaut','ok'], spare:['sauber, bereit','ok'], dirty:['ausgebaut – ausspülen','warn']};
+function useDays(f, now=Date.now()){ return ((f.useMs||0) + (f.status==='in'&&f.inAt ? now-new Date(f.inAt).getTime() : 0))/DAY; }
+function deepDue(p,f){ return useDays(f) >= p.cfg.filterDeepDays; }
 function getWho(){ try{ return localStorage.getItem('spa-who')||''; }catch(e){ return ''; } }
 function setWho(n){ try{ localStorage.setItem('spa-who', n); }catch(e){} }
 function logDose(p, what, amount){ p.doses.push({at:new Date().toISOString(), what, amount:amount||'', by:getWho()}); if(p.doses.length>400) p.doses.shift(); }
@@ -280,6 +306,8 @@ function migrate(s){
     s.pools[k] = {...d, ...p, cfg:{...d.cfg, ...(p.cfg||{}), intervals:{...d.cfg.intervals, ...(p.cfg?.intervals||{})}}};
     const q=s.pools[k];
     if (!q.filters) q.filters=d.filters;
+    q.cfg.bs = {...d.cfg.bs, ...(p.cfg?.bs||{})};
+    q.filters.forEach(f=>{ if(f.useMs==null) f.useMs=0; if(f.rinses==null) f.rinses=0; if(f.status==='in' && !f.inAt) f.inAt=f.since||new Date().toISOString(); });
     if (k==='whirlpool' && !q.cfg.volConfirmed && q.cfg.vol===1300){ q.cfg.vol=1325; q.cfg.volConfirmed=true; if(q.name==='Whirlpool') q.name='Cameo'; if(!q.cfg.dosesCustom) Object.assign(q.cfg, defaultDoses('whirlpool',1325)); }
   }
   return s;
@@ -453,32 +481,54 @@ function banners(){
 function vHome(){
   const p=P(), last=p.log[p.log.length-1];
   const ev = last ? evaluate(last,p) : null;
-  const due = TASKS.map(t=>({t, st:taskState(p,t)})).filter(x=>x.st.s!=='ok').sort((a,b)=>a.st.due-b.st.due);
+  const due = getTasks(p).map(t=>({t, st:taskState(p,t)})).filter(x=>x.st.s!=='ok').sort((a,b)=>a.st.due-b.st.due);
   const daysOld = last ? Math.floor((Date.now()-new Date(last.at))/DAY) : null;
   const fw = (p.filters||[]).map(f=>({f, w:filterWear(p,f)})).filter(x=>x.w.s!=='ok');
+  const fdeep = (p.filters||[]).filter(f=>f.status!=='in' && deepDue(p,f));
   const dirty = (p.filters||[]).filter(f=>f.status==='dirty');
   const sLabel = {ok:'Wasser in Ordnung', warn:'Handlungsbedarf', crit:'Sofort handeln', none:'Noch keine Messung'};
   return `${banners()}${whoBanner()}
+  ${isBS(p)?`<div class="small" style="margin:-4px 0 8px">Pflegeplan: <b>Bundschuh</b> · pH-Ziel ${fmt(p.cfg.bs.phMin,1)}–${fmt(p.cfg.bs.phMax,1)}</div>`:''}
+  ${dropBanner(p,last)}
   <button class="btn full" data-view="wizard" style="margin:0 0 12px;padding:14px;font-size:16px">🧪 Wasser messen – Schritt für Schritt</button>
   <div class="card status ${ev?ev.status:'none'}">
     <span class="dot"></span>
     <div><b>${ev?sLabel[ev.status]:sLabel.none}</b><div class="small">${last?`Letzte Messung ${dtstr(last.at)}${daysOld>7?` – älter als eine Woche, bitte neu messen`:''}`:'Miss mit dem PoolLab 2.0 und trage die Werte unter „Messen“ ein.'}</div></div>
   </div>
   ${ev?`<div class="card"><h2>Messwerte</h2><div class="tiles">${ev.params.map(x=>`<div class="tile ${x.s}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="t">${esc(x.t)}</div></div>`).join('')}</div></div>
-  <div class="card"><h2>Was jetzt zu tun ist</h2>${recsHtml(ev.recs)}</div>`:''}
+  <div class="card"><h2>Was jetzt zu tun ist</h2>${recsHtml(ev.recs)}</div>${normCard(last,p)}`:''}
   <button class="btn full sec" data-view="help" style="margin:0 0 12px">🆘 Problem mit dem Wasser? Hilfe</button>
+  ${isBS(p)?`<div class="card"><h2>Wasser nachgefüllt?</h2><p class="small" style="margin-top:0">Nach Bundschuh: ${p.cfg.bs.minusG} g pH-Minus und ${p.cfg.bs.softPer5} ml SoftWater je 5 Minuten Nachfüllen.</p>
+    <button class="btn full sec" data-refill="1">💧 Nachfüllen eintragen</button></div>`:''}
   <div class="card"><h2>Gebadet?</h2><p class="small" style="margin-top:0">Nach jedem Bad UltraShock zugeben: 5 ml pro Person, mindestens 10 ml.</p>
     <div class="seg" id="bathSeg">${[1,2,3,4,5,6].map(n=>`<button data-bath="${n}">${n} Pers.</button>`).join('')}</div>
     ${p.baths.length?`<div class="hint">Zuletzt: ${dtstr(p.baths[p.baths.length-1].at)}, ${p.baths[p.baths.length-1].persons} Pers.</div>`:''}
   </div>
-  <div class="card"><h2>Fällige Aufgaben</h2>${due.length||fw.length||dirty.length?due.map(({t,st})=>`<div class="task"><span class="dot ${st.s}"></span><div class="grow">${t.name}<div class="small">${st.label}${dueHint(p,t.k)}</div></div>${t.k==='ph'?`<button class="btn sm" data-view="wizard">Messen</button>`:`<button class="btn sm sec" data-done="${t.k}">Erledigt</button>`}</div>`).join('')
-   + dirty.map(f=>`<div class="task"><span class="dot warn"></span><div class="grow">Filter ${f.n} reinigen<div class="small">liegt verschmutzt bereit</div></div><button class="btn sm sec" data-fclean="${f.n}">Gereinigt</button></div>`).join('')
+  <div class="card"><h2>Fällige Aufgaben</h2>${due.length||fw.length||dirty.length||fdeep.length?due.map(({t,st})=>`<div class="task"><span class="dot ${st.s}"></span><div class="grow">${t.name}<div class="small">${st.label}${dueHint(p,t.k)}</div></div>${t.k==='ph'?`<button class="btn sm" data-view="wizard">Messen</button>`:`<button class="btn sm sec" data-done="${t.k}">Erledigt</button>`}</div>`).join('')
+   + dirty.map(f=>deepDue(p,f)?`<div class="task"><span class="dot warn"></span><div class="grow">Filter ${f.n} grundreinigen<div class="small">${fmt(useDays(f),0)} Einsatztage – mit FilterClean</div></div><button class="btn sm sec" data-fclean="${f.n}">Grundgereinigt</button></div>`:`<div class="task"><span class="dot warn"></span><div class="grow">Filter ${f.n} ausspülen<div class="small">liegt ausgebaut bereit</div></div><button class="btn sm sec" data-frinse="${f.n}">Ausgespült</button></div>`).join('')
+   + fdeep.filter(f=>f.status==='spare').map(f=>`<div class="task"><span class="dot warn"></span><div class="grow">Filter ${f.n} grundreinigen<div class="small">${fmt(useDays(f),0)} Einsatztage</div></div><button class="btn sm sec" data-fclean="${f.n}">Grundgereinigt</button></div>`).join('')
    + fw.map(({f,w})=>`<div class="task"><span class="dot ${w.s}"></span><div class="grow">Filter ${f.n} ${w.s==='crit'?'ersetzen':'bald ersetzen'}<div class="small">${w.why}</div></div><button class="btn sm sec" data-view="tasks">Ansehen</button></div>`).join('')
    :'<p class="small">Nichts fällig. 👍</p>'}</div>`;
 }
 
+function dropBanner(p,last){
+  if (!isBS(p)) return '';
+  const b=p.cfg.bs, d=p.phDrop, today=new Date().toDateString();
+  if (d && !d.ended){
+    const n=d.doses.length, doneToday=d.doses.some(x=>new Date(x).toDateString()===today);
+    if (n>=b.dropDays) return '';
+    return `<div class="card status warn" style="display:block"><b>pH-Absenkung – ${n} von ${b.dropDays} Gaben erledigt</b>
+      ${doneToday?`<p class="small">Heute schon erledigt. Morgen zuerst den pH messen (nur Kammer 1).</p>`:
+      `<p class="small">1. Zuerst den pH messen (nur Kammer 1 mit Phenol Red).<br>2. Liegt er <b>über ${fmt(b.phMax,1)}</b> → <b>${b.minusG} g pH-Minus</b> bei laufenden Pumpen zugeben.<br>3. Liegt er schon bei ${fmt(b.phMax,1)} oder darunter → Absenkung beenden.</p>
+      <button class="btn full" data-drop="dose">✓ ${b.minusG} g pH-Minus eingefüllt</button>`}
+      <button class="btn full ghost" data-drop="end">pH passt – Absenkung beenden</button></div>`;
+  }
+  if (last && last.ph!=null && last.ph>b.phMax && isAdmin())
+    return `<button class="btn full sec" data-drop="start" style="margin:0 0 12px">pH-Absenkung starten (bis ${b.dropDays} Tage × ${b.minusG} g)</button>`;
+  return '';
+}
 function dueHint(p,k){
-  const c=p.cfg;
+  const c=effCfg(p);
   if (k==='weekly') return `<br><b>${c.basicWeek??'?'} ml Basic</b> und <b>${c.usWeek} ml UltraShock</b> – mit mind. 3 Std. Abstand`;
   if (k==='soft') return `<br><b>${round5(50*c.vol/1000)} ml SoftWater</b>`;
   if (k==='change') return '<br>Grundreinigung mit SystemFlush, ablassen, neu befüllen, dann „Neubefüllung eintragen“';
@@ -488,6 +538,14 @@ function whoBanner(){
   return '';
   return `<div class="banner"><b>Wer benutzt dieses Gerät?</b> Dann sieht man im Protokoll, wer gemessen oder dosiert hat.
    <div class="row" style="margin-top:8px"><input id="whoIn" placeholder="Vorname"><button class="btn" id="whoBtn">Speichern</button></div></div>`;
+}
+function normCard(m, p){
+  if (!isBS(p) || !m) return '';
+  const e = evaluate(m, p, 'norm');
+  return `<details class="card"><summary style="font-weight:600;cursor:pointer">Zusatz-Kontrolle nach SpaBalancer/Norm: <span class="tag ${e.status}">${{ok:'in Ordnung',warn:'Abweichung',crit:'deutliche Abweichung',none:'–'}[e.status]}</span></summary>
+   <p class="small">Nur zur Information – gepflegt wird nach dem Bundschuh-Plan. So siehst du mit der Zeit, ob der Plan bei deinem Wasser funktioniert.</p>
+   <div class="tiles">${e.params.map(x=>`<div class="tile ${x.s}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="t">${esc(x.t)}</div></div>`).join('')}</div>
+   <h3>Das würde die Norm empfehlen</h3>${e.recs.map(r=>`<div class="rec"><span class="dot ${r.s}"></span><div><b>${esc(r.t)}</b> ${r.a?`<span class="small">${esc(r.a)}</span>`:''}</div></div>`).join('')}</details>`;
 }
 function recsHtml(recs){
   return recs.map(r=>`<div class="rec"><span class="dot ${r.s}"></span><div><b>${esc(r.t)}</b> ${r.a?`<span class="amt">${esc(r.a)}</span>`:''}<div class="small">${esc(r.d)}</div></div></div>`).join('');
@@ -533,20 +591,21 @@ function filterCard(p){
   <p class="small" style="margin-top:0">Filter mit 1, 2, 3 beschriften. Beim Tausch wird erfasst, welcher Filter eingesetzt wird; der ausgebaute wird nach dem Reinigen gezählt.</p>
   ${p.filters.map(f=>{const w=filterWear(p,f), st=FSTAT[f.status]; const pct=Math.min(100,Math.round(w.r*100));
    return `<div class="task" style="align-items:flex-start"><div style="font-size:26px;font-weight:700;width:34px;text-align:center;color:var(--brand)">${f.n}</div>
-   <div class="grow"><b>${st[0]}</b> ${w.s!=='ok'?`<span class="tag ${w.s}">${w.s==='crit'?'ersetzen':'bald ersetzen'}</span>`:''}
-    <div class="small">${f.since?`im Einsatz seit ${dstr(f.since)} (${fmt(w.age,1)} Mon.)`:'noch nicht benutzt'} · ${f.cleanings}× gereinigt${f.lastClean?` · zuletzt ${dstr(f.lastClean)}`:''} · ${f.uses||0}× eingesetzt</div>
-    <div style="height:6px;background:var(--line);border-radius:3px;margin:6px 0"><div style="height:6px;width:${pct}%;border-radius:3px;background:var(--${w.s==='ok'?'ok':w.s})"></div></div>
-    <div class="seg">${f.status==='dirty'?`<button data-fclean="${f.n}">✓ Gereinigt</button>`:''}${f.status==='in'?`<button data-done="filter">Tauschen</button><button data-fcleanin="${f.n}">Eingebaut gereinigt</button>`:''}<button data-fnew="${f.n}">Durch neuen ersetzt</button>${isAdmin()?`<button data-fedit="${f.n}">✎ Korrigieren</button>`:''}</div>
+   <div class="grow"><b>${st[0]}</b> ${deepDue(p,f)?'<span class="tag warn">Grundreinigung fällig</span>':''} ${w.s!=='ok'?`<span class="tag ${w.s}">${w.s==='crit'?'ersetzen':'bald ersetzen'}</span>`:''}
+    <div class="small">Einsatz seit Grundreinigung: <b>${fmt(useDays(f),0)} von ${c.filterDeepDays} Tagen</b> · ${f.rinses||0}× ausgespült</div>
+    <div style="height:6px;background:var(--line);border-radius:3px;margin:4px 0 6px"><div style="height:6px;width:${Math.min(100,Math.round(useDays(f)/c.filterDeepDays*100))}%;border-radius:3px;background:var(--${deepDue(p,f)?'warn':'brand'})"></div></div>
+    <div class="small">${f.since?`gekauft/erster Einbau ${dstr(f.since)} (${fmt(w.age,1)} Mon.)`:'noch nicht benutzt'} · ${f.cleanings}× grundgereinigt${f.lastClean?` · zuletzt ${dstr(f.lastClean)}`:''}</div>
+    <div class="seg" style="margin-top:6px">${f.status==='dirty'?`<button data-frinse="${f.n}">✓ Ausgespült</button><button data-fclean="${f.n}">✓ Grundgereinigt</button>`:''}${f.status==='spare'&&deepDue(p,f)?`<button data-fclean="${f.n}">✓ Grundgereinigt</button>`:''}${f.status==='in'?`<button data-done="filter">Tauschen</button>`:''}<button data-fnew="${f.n}">Durch neuen ersetzt</button>${isAdmin()?`<button data-fedit="${f.n}">✎ Korrigieren</button>`:''}</div>
    </div></div>`}).join('')}
-   <div class="hint">Verschleiß = Alter (max. ${c.filterLifeMonths} Monate) oder Reinigungen (max. ${c.filterMaxClean}), je nachdem was zuerst erreicht ist. Richtwerte, in den Einstellungen anpassbar.</div></div>`;
+   <div class="hint">Ausspülen bei jedem Tausch. Grundreinigung mit FilterClean nach ${c.filterDeepDays} Tagen im Pool – gezählt wird nur die Zeit, in der der Filter eingebaut war. Austausch gegen neuen nach ${c.filterLifeMonths} Monaten oder ${c.filterMaxClean} Grundreinigungen (Richtwerte).</div></div>`;
 }
 function openSwap(){
   const p=P(), inF=p.filters.find(f=>f.status==='in');
   const opts=p.filters.filter(f=>f.status!=='in');
   document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card"><h2>Filter tauschen</h2>
-   <p class="small">${inF?`Filter ${inF.n} kommt raus und wird als „muss gereinigt werden“ markiert.`:''} Welchen Filter setzt du ein?</p>
+   <p class="small">${inF?`Filter ${inF.n} kommt raus – danach ausspülen${deepDue(P(),inF)?' (bei ihm ist die Grundreinigung fällig)':''}.`:''} Welchen Filter setzt du ein?</p>
    ${opts.map(f=>`<button class="btn full ${f.status==='spare'?'':'sec'}" data-swapin="${f.n}">Filter ${f.n} einsetzen <span style="font-weight:400">(${FSTAT[f.status][0]})</span></button>`).join('')}
-   ${inF?`<button class="btn full ghost" data-fcleanin="${inF.n}">Nicht getauscht – Filter ${inF.n} nur gereinigt</button>`:''}
+   ${inF?`<button class="btn full ghost" data-frinsein="${inF.n}">Nicht getauscht – Filter ${inF.n} nur ausgespült</button><button class="btn full ghost" data-fcleanin="${inF.n}">Nicht getauscht – Filter ${inF.n} grundgereinigt</button>`:''}
    <button class="btn full ghost" data-close="1">Abbrechen</button></div></div>`;
 }
 function openFilterEdit(n){
@@ -557,6 +616,7 @@ function openFilterEdit(n){
    <div class="row"><div><label>Anzahl Reinigungen</label><input type="number" id="fe_clean" min="0" step="1" value="${f.cleanings}"></div>
    <div><label>Zuletzt gereinigt</label><input type="date" id="fe_last" value="${d(f.lastClean)}"><button class="btn ghost sm" data-clear="fe_last" type="button" style="margin-top:4px">✕ leeren</button></div></div>
    <div class="hint">Steht „Anzahl Reinigungen“ auf 0, wird auch „Zuletzt gereinigt“ gelöscht.</div>
+   <label>Einsatztage seit letzter Grundreinigung</label><input type="number" id="fe_use" min="0" step="1" value="${Math.round(useDays(f))}">
    <label>Zustand</label><select id="fe_status">${Object.entries(FSTAT).map(([k,v])=>`<option value="${k}" ${f.status===k?'selected':''}>${v[0]}</option>`).join('')}</select>
    <div class="hint">Wird ein anderer Filter auf „eingebaut“ gesetzt, kommt der bisher eingebaute auf „muss gereinigt werden“.</div>
    <button class="btn full" data-fsave="${f.n}">Speichern</button><button class="btn full ghost" data-close="1">Abbrechen</button></div></div>`;
@@ -566,7 +626,7 @@ function closeModal(){ document.getElementById('modal').innerHTML=''; }
 function vTasks(){
   const p=P(), ph=startPhase(p);
   return `${banners()}${filterCard(p)}<div class="card"><h2>Pflegeplan – ${esc(p.name)}</h2>
-  ${TASKS.map(t=>{const st=taskState(p,t);return `<div class="task"><span class="dot ${st.s}"></span><div class="grow"><b>${t.name}</b> <span class="tag ${st.s}">${st.label}</span><div class="small">alle ${st.days} Tage${p.tasks[t.k]?` · zuletzt ${dstr(p.tasks[t.k])}`:''}<br>${esc(t.note)}</div></div><button class="btn sm sec" data-done="${t.k}">Erledigt</button></div>`}).join('')}
+  ${getTasks(p).map(t=>{const st=taskState(p,t);return `<div class="task"><span class="dot ${st.s}"></span><div class="grow"><b>${t.name}</b> <span class="tag ${st.s}">${st.label}</span><div class="small">alle ${st.days} Tage${p.tasks[t.k]?` · zuletzt ${dstr(p.tasks[t.k])}`:''}<br>${esc(t.note)}</div></div><button class="btn sm sec" data-done="${t.k}">Erledigt</button></div>`}).join('')}
   </div>
   <div class="card"><h2>Neubefüllung</h2>
     <p class="small">${p.filledAt?`Zuletzt befüllt am ${dstr(p.filledAt)}.`:'Noch kein Befülldatum hinterlegt.'} Startet die 14-tägige Startphase mit engmaschigem Plan.</p>
@@ -619,7 +679,14 @@ function vSettings(){
    <label><input type="checkbox" name="active" style="width:auto" ${p.active?'checked':''}> In Betrieb</label>
    <label>Wasservolumen (Liter)</label>${num('vol',c.vol,'10')}
    <div class="hint">Steht in der Armstark-Modellübersicht bzw. im Datenblatt deines Modells.</div>
-   <h3>Dosierung</h3>
+   <h3>Pflegeplan</h3>
+   <select name="plan"><option value="bundschuh" ${c.plan==='bundschuh'?'selected':''}>Bundschuh (Händler) – Norm nur als Kontrolle</option><option value="spabalancer" ${c.plan!=='bundschuh'?'selected':''}>SpaBalancer-Anleitung / Normwerte</option></select>
+   <div class="row"><div><label>Bundschuh pH min</label>${num('bs_phMin',c.bs.phMin)}</div><div><label>Bundschuh pH max</label>${num('bs_phMax',c.bs.phMax)}</div></div>
+   <div class="row"><div><label>pH-Minus je Gabe (g)</label>${num('bs_minusG',c.bs.minusG,'1')}</div><div><label>Absenkung max. Tage</label>${num('bs_dropDays',c.bs.dropDays,'1')}</div></div>
+   <div class="row"><div><label>UltraShock/Woche (ml)</label>${num('bs_usWeek',c.bs.usWeek,'5')}</div><div><label>Basic/Woche (ml)</label>${num('bs_basicWeek',c.bs.basicWeek,'5')}</div></div>
+   <div class="row"><div><label>SoftWater je 5 Min. Nachfüllen (ml)</label>${num('bs_softPer5',c.bs.softPer5,'5')}</div><div><label>Kontrollmessung alle (Tage)</label>${num('bs_ctrlDays',c.bs.ctrlDays,'1')}</div></div>
+   <div class="row"><div><label>Filter tauschen/ausspülen alle (Tage)</label>${num('bs_rinseDays',c.bs.rinseDays,'1')}</div><div><label>Grundreinigung nach Einsatztagen</label>${num('filterDeepDays',c.filterDeepDays,'1')}</div></div>
+   <h3>Dosierung (SpaBalancer/Norm)</h3>
    <div class="row"><div><label>UltraShock wöchentlich (ml)</label>${num('usWeek',c.usWeek,'5')}</div><div><label>Basic wöchentlich (ml)</label>${num('basicWeek',c.basicWeek,'5')}</div></div>
    <div class="hint">Voreinstellung aus der SpaBalancer-Tabelle${p.type==='swimspa'?' (Swim-Spa: Basic bitte selbst eintragen)':''}. Bei geändertem Volumen wird neu berechnet, solange du die Werte nicht selbst geändert hast.</div>
    <div class="row"><div><label>Schockbehandlung ml je 1.000 l</label>${num('shockPer1000',c.shockPer1000,'5')}</div><div></div></div>
@@ -796,8 +863,10 @@ function vWizard(){
     h=`<div class="card status ${ev.status}"><span class="dot"></span><b>${{ok:'Wasser in Ordnung',warn:'Handlungsbedarf',crit:'Sofort handeln',none:'Keine Werte'}[ev.status]}</b></div>
     <div class="card"><h2>6. Dosieren</h2>
     ${todo.length?`<p class="small" style="margin-top:0">In dieser Reihenfolge abarbeiten und abhaken:</p>`:''}
+    ${isBS(P())?'<p class="small">Nach Pflegeplan Bundschuh.</p>':''}
     ${ev.recs.map((r,i)=>{const act=r.s!=='ok'||r.a; return `<div class="rec">${act?`<input type="checkbox" data-wcheck="${i}" ${wiz.checks[i]?'checked':''} style="width:22px;height:22px;flex:none;margin-top:2px">`:`<span class="dot ${r.s}"></span>`}<div><b>${esc(r.t)}</b> ${r.a?`<span class="amt">${esc(r.a)}</span>`:''}<div class="small">${esc(r.d)}${howTo(r)}</div></div></div>`;}).join('')}
     </div>
+    ${normCard({...wiz.v}, P())}
     <div class="card small"><b>Sicherheit:</b> Mittel nie miteinander mischen. Für jedes Mittel einen eigenen, sauberen Messbecher nehmen. Immer das Mittel ins Wasser geben, nie Wasser ins Mittel. Kinder dosieren nur zusammen mit einem Erwachsenen. Nach dem Dosieren Hände waschen.</div>
     ${wizBtns('Weiter zum Aufräumen')}`; }
   if (st===6) h=`<div class="card"><h2>7. Aufräumen</h2>
@@ -893,7 +962,9 @@ const after = {
       if (newVol!==c.vol){ c.vol=newVol; if(!c.dosesCustom){ const d=defaultDoses(p.type,newVol); c.usWeek=d.usWeek; if(p.type==='whirlpool') c.basicWeek=d.basicWeek; } }
       c.volConfirmed = true;
       const fc=n('filterCount'); if (fc!=null && fc>=0 && fc<=6 && fc!==p.filters.length){ while(p.filters.length<fc) p.filters.push({n:p.filters.length+1,status:p.filters.length?'spare':'in',since:null,cleanings:0,lastClean:null,uses:0}); p.filters.length=fc; }
-      for (const k of ['filterLifeMonths','filterMaxClean','shockPer1000','phMinusGper01','phPlusGper01','phMin','phMax','phCrit','phCritLow','usMin','usMax','taMin','taMax','taPlusGper10','hardMax']){ const v=n(k); if(v!=null) c[k]=v; }
+      c.plan = f.get('plan')||c.plan;
+      for (const k of ['phMin','phMax','minusG','dropDays','usWeek','basicWeek','softPer5','ctrlDays','rinseDays']){ const v=n('bs_'+k); if(v!=null) c.bs[k]=v; }
+      for (const k of ['filterDeepDays','filterMaxClean','shockPer1000','phMinusGper01','phPlusGper01','phMin','phMax','phCrit','phCritLow','usMin','usMax','taMin','taMax','taPlusGper10','hardMax']){ const v=n(k); if(v!=null) c[k]=v; }
       TASKS.forEach(t=>{const v=n('int_'+t.k); if(v) c.intervals[t.k]=v;});
       save(); render(); toast('Gespeichert');
     });
@@ -922,31 +993,54 @@ const after = {
 };
 
 document.addEventListener('click',e=>{
-  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wtick],[data-bathok],[data-ddel],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help]'); if(!t) return;
+  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wtick],[data-bathok],[data-ddel],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help],[data-frinse],[data-frinsein],[data-drop],[data-refill],[data-refillok]'); if(!t) return;
   const p0=P(), F=n=>p0.filters.find(f=>f.n===+n), now=new Date().toISOString();
   if (t.dataset.close!==undefined){ if(e.target===t || t.tagName==='BUTTON') closeModal(); return; }
   if (t.dataset.wgo){ wiz.step=Math.max(0,Math.min(6,wiz.step+ +t.dataset.wgo)); if(wiz.step===5&&!wiz.ev) wiz.step=4; render(); window.scrollTo(0,0); return; }
   if (t.dataset.wtick){ wiz.ticks=wiz.ticks||{}; wiz.ticks[t.dataset.wtick]=!wiz.ticks[t.dataset.wtick]; render(); return; }
   if (t.dataset.wstep){ wiz.step=+t.dataset.wstep; render(); return; }
   if (t.dataset.swapin){ const out=p0.filters.find(f=>f.status==='in'), inn=F(t.dataset.swapin);
-    if(out){ out.status='dirty'; if(!out.uses) out.uses=1; }
-    inn.status='in'; inn.uses=(inn.uses||0)+1; if(!inn.since) inn.since=now;
+    if(out){ out.status='dirty'; if(!out.uses) out.uses=1; if(out.inAt) out.useMs=(out.useMs||0)+(Date.now()-new Date(out.inAt).getTime()); out.inAt=null; }
+    inn.status='in'; inn.inAt=now; inn.uses=(inn.uses||0)+1; if(!inn.since) inn.since=now;
     p0.tasks.filter=now; logDose(p0, `Filter getauscht: ${out?out.n:'–'} → ${inn.n}`); closeModal(); save(); render(); toast(`Filter ${inn.n} eingesetzt`); return; }
-  if (t.dataset.fclean){ const f=F(t.dataset.fclean); f.cleanings++; f.lastClean=now; f.status='spare'; logDose(p0, `Filter ${f.n} gereinigt`, `${f.cleanings}. Reinigung`); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Reinigung`); return; }
-  if (t.dataset.fcleanin){ const f=F(t.dataset.fcleanin); f.cleanings++; f.lastClean=now; if(!f.since) f.since=now; p0.tasks.filter=now; logDose(p0, `Filter ${f.n} gereinigt (eingebaut)`, `${f.cleanings}. Reinigung`); closeModal(); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Reinigung`); return; }
+  if (t.dataset.fclean){ const f=F(t.dataset.fclean); f.cleanings++; f.lastClean=now; f.useMs=0; f.status='spare'; logDose(p0, `Filter ${f.n} grundgereinigt`, `${f.cleanings}. Grundreinigung`); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Grundreinigung`); return; }
+  if (t.dataset.frinse){ const f=F(t.dataset.frinse); f.rinses=(f.rinses||0)+1; f.status='spare'; logDose(p0, `Filter ${f.n} ausgespült`); save(); render(); toast(`Filter ${f.n} ausgespült`); return; }
+  if (t.dataset.fcleanin){ const f=F(t.dataset.fcleanin); f.cleanings++; f.lastClean=now; f.useMs=0; f.inAt=now; if(!f.since) f.since=now; p0.tasks.filter=now; logDose(p0, `Filter ${f.n} grundgereinigt (eingebaut)`, `${f.cleanings}. Grundreinigung`); closeModal(); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Grundreinigung`); return; }
+  if (t.dataset.frinsein){ const f=F(t.dataset.frinsein); f.rinses=(f.rinses||0)+1; p0.tasks.filter=now; logDose(p0, `Filter ${f.n} ausgespült (eingebaut)`); closeModal(); save(); render(); toast(`Filter ${f.n} ausgespült`); return; }
+  if (t.dataset.drop){ const b=p0.cfg.bs;
+    if (t.dataset.drop==='start'){ p0.phDrop={start:now, doses:[], ended:null}; logDose(p0,'pH-Absenkung gestartet'); }
+    if (t.dataset.drop==='dose' && p0.phDrop){ p0.phDrop.doses.push(now); logDose(p0, `pH-Minus (Absenkung ${p0.phDrop.doses.length}/${b.dropDays})`, `${b.minusG} g`); if (p0.phDrop.doses.length>=b.dropDays) p0.phDrop.ended=now; }
+    if (t.dataset.drop==='end' && p0.phDrop){ p0.phDrop.ended=now; logDose(p0,'pH-Absenkung beendet'); }
+    save(); render(); toast('Eingetragen ✓'); return; }
+  if (t.dataset.refill){ const b=p0.cfg.bs, last=p0.log[p0.log.length-1];
+    document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card"><h2>Wasser nachgefüllt</h2>
+      <label>Wie lange lief der Schlauch? (Minuten)</label><input type="number" id="rf_min" min="1" step="1" value="5" inputmode="numeric">
+      <div style="text-align:center;margin-top:12px"><div style="font-size:15px">Jetzt einfüllen:</div>
+      <div style="font-size:34px;font-weight:700;color:var(--brand)" id="rf_soft">${b.softPer5} ml SoftWater</div>
+      <div style="font-size:26px;font-weight:700;color:var(--brand)">${b.minusG} g pH-Minus</div></div>
+      ${last&&last.ph!=null&&last.ph<b.phMin?`<p class="small" style="color:var(--crit)">Achtung: Letzter pH war ${fmt(last.ph,2)} – unter ${fmt(b.phMin,1)}. Das pH-Minus diesmal weglassen.</p>`:''}
+      <p class="small">Bei laufenden Pumpen zugeben, Mittel nicht mischen.</p>
+      <button class="btn full" data-refillok="1" style="padding:14px">✓ Eingefüllt</button><button class="btn full ghost" data-close="1">Abbrechen – nichts eingetragen</button></div></div>`;
+    const inp=document.getElementById('rf_min'); inp.addEventListener('input',()=>{ const mn=Math.max(1,parseInt(inp.value)||5); document.getElementById('rf_soft').textContent=`${round5(mn/5*b.softPer5)} ml SoftWater`; });
+    return; }
+  if (t.dataset.refillok){ const b=p0.cfg.bs, mn=Math.max(1,parseInt(document.getElementById('rf_min').value)||5), last=p0.log[p0.log.length-1], skip=last&&last.ph!=null&&last.ph<b.phMin;
+    p0.doses.push({at:now, what:`Nachfüllen ${mn} Min.: SoftWater`, amount:`${round5(mn/5*b.softPer5)} ml`, by:getWho()});
+    if (!skip) p0.doses.push({at:new Date(Date.now()+1000).toISOString(), what:'Nachfüllen: pH-Minus', amount:`${b.minusG} g`, by:getWho()});
+    closeModal(); save(); render(); toast('Eingetragen ✓'); return; }
   if (t.dataset.fnew){ const f=F(t.dataset.fnew); f.since=f.status==='in'?now:null; f.cleanings=0; f.lastClean=null; f.uses=f.status==='in'?1:0; if(f.status==='dirty') f.status='spare'; logDose(p0, `Filter ${f.n} durch neuen ersetzt`); save(); render(); toast(`Filter ${f.n} neu`); return; }
   if ((t.dataset.fedit||t.dataset.fsave) && !isAdmin()) return;
   if (t.dataset.clear){ const el=document.getElementById(t.dataset.clear); if(el) el.value=''; return; }
   if (t.dataset.fedit){ openFilterEdit(t.dataset.fedit); return; }
   if (t.dataset.fsave){ const f=F(t.dataset.fsave), v=id=>document.getElementById(id).value, toIso=x=>x?new Date(x+'T12:00').toISOString():null;
-    const st=v('fe_status'); if (st==='in' && f.status!=='in'){ const o=p0.filters.find(x=>x.status==='in'); if(o) o.status='dirty'; }
-    f.since=toIso(v('fe_since')); f.lastClean=toIso(v('fe_last')); f.cleanings=Math.max(0,parseInt(v('fe_clean'))||0); if(!f.cleanings) f.lastClean=null; f.status=st; if(f.since&&!f.uses) f.uses=1;
+    const st=v('fe_status'); if (st==='in' && f.status!=='in'){ const o=p0.filters.find(x=>x.status==='in'); if(o){ if(o.inAt) o.useMs=(o.useMs||0)+(Date.now()-new Date(o.inAt).getTime()); o.inAt=null; o.status='dirty'; } }
+    f.since=toIso(v('fe_since')); f.lastClean=toIso(v('fe_last')); f.cleanings=Math.max(0,parseInt(v('fe_clean'))||0); if(!f.cleanings) f.lastClean=null; f.status=st;
+    { const ud=Math.max(0,parseInt(v('fe_use'))||0); f.useMs=ud*DAY; f.inAt = st==='in' ? new Date().toISOString() : null; } if(f.since&&!f.uses) f.uses=1;
     logDose(p0, `Filter ${f.n} korrigiert`); closeModal(); save(); render(); toast('Gespeichert'); return; }
   if (t.dataset.done==='filter' && p0.filters?.length){ openSwap(); return; }
   if (t.dataset.view){ e.preventDefault(); view=t.dataset.view; render(); window.scrollTo(0,0); }
   else if (t.dataset.pool){ cur=t.dataset.pool; render(); }
   else if (t.dataset.done){
-    const p=P(), k=t.dataset.done, task=TASKS.find(x=>x.k===k); p.tasks[k]=new Date().toISOString();
+    const p=P(), k=t.dataset.done, task=getTasks(p).find(x=>x.k===k)||TASKS.find(x=>x.k===k); p.tasks[k]=new Date().toISOString();
     if (k==='weekly'){ logDose(p, 'Basic + UltraShock (Woche)', `${p.cfg.basicWeek??'?'} ml / ${p.cfg.usWeek} ml`); }
     else if (k==='soft'){ logDose(p, 'SoftWater', `${round5(50*p.cfg.vol/1000)} ml`); }
     else logDose(p, task.name+' erledigt');

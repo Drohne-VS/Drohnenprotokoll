@@ -24,3 +24,13 @@ eigener Render-Dienst `spa-pflege`, eigene Datenbank und Zugänge.
 - Einstellungen, Messungen löschen, Filter korrigieren: nur Admin (App + Server-Hook).
 - Hilfe-Seite (Problemlöser), Zugaben nachtragen mit Datum, fällige Aufgaben mit Mengen.
 - Offen: echte Push-Benachrichtigungen (Erinnerungen aufs Handy).
+
+## Stand 23.11.2026 – Pflegeplan „Bundschuh“
+- `cfg.plan = 'bundschuh' | 'spabalancer'` (Admin wählbar). Bundschuh-Werte in `cfg.bs`
+  (pH-Ziel 6,5–6,8 statt der vom Händler genannten 6,0–6,5 – Entscheidung des Nutzers; 30 g pH-Minus je Gabe,
+  pH-Absenkung max. 3 Tage mit pH-Messung vor jeder Gabe; Woche 30 ml UltraShock + 30 ml Basic;
+  Nachfüllen: 30 g pH-Minus + 40 ml SoftWater je 5 Min.; Kontrollmessung alle 14 Tage).
+- Bewertung `evaluate(m, pool, mode)`: Plan-Bewertung steuert Aufgaben/Empfehlungen; `mode='norm'` zeigt
+  SpaBalancer/Normwerte als „Zusatz-Kontrolle“ (aufklappbar).
+- Filter: Einsatzzeit je Filter (`inAt`, `useMs`), Grundreinigung nach `filterDeepDays` (90) Einsatztagen,
+  sonst nur ausspülen (`rinses`).
