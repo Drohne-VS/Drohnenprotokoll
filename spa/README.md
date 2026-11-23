@@ -38,3 +38,6 @@ eigener Render-Dienst `spa-pflege`, eigene Datenbank und Zugänge.
   Hygiene-Check (Startseite): UltraShock-Restwert (<0,1 beobachten), Aussehen/Geruch/Schaum/schmierige Wände,
   Harnstoff (optional, Zusatz-Reagenz), Keimtest (Eintauchnährboden, monatlich, eigene Liste `germs`),
   Wasseralter, Badende der letzten 7 Tage.
+- Aktuelle App-Adresse (Testbetrieb): https://spa-pflege.onrender.com – die Zugangsverwaltung zeigt immer
+  `location.origin`, nach dem Umzug also automatisch die neue Adresse. Familie muss die App nach dem Umzug
+  neu zum Home-Bildschirm hinzufügen.
