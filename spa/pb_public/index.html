@@ -126,6 +126,7 @@ const TASKS = [
   {k:'filter', name:'Filter tauschen & reinigen',         days:14,  start:7,  note:'Sauberen Filter einsetzen, den alten mit Filterbrause und Filterreiniger säubern. Alle 1–2 Wochen, nach Neubefüllung 1–2× pro Woche.'},
   {k:'soft',   name:'SoftWater (monatlich)',              days:30,  note:'50 ml je 1.000 l, beim Nachfüllen anteilig.'},
   {k:'cover',  name:'Abdeckung reinigen / prüfen',        days:30,  note:'Unterseite auf muffigen Geruch prüfen.'},
+  {k:'germ',   name:'Keimtest (Eintauchnährboden)',        days:30,  note:'Zur Sicherheit 1× im Monat: Nährboden ins Wasser tauchen, 48 Std. bei Zimmertemperatur liegen lassen, Kolonien mit der Vergleichskarte ablesen und unter „Messen“ eintragen.'},
   {k:'change', name:'Wasserwechsel + Grundreinigung',     days:182, note:'Idealerweise alle 6, spätestens alle 12 Monate. Vorher Grundreinigung mit SystemFlush, danach Neubefüllung starten.'},
 ];
 
@@ -134,15 +135,16 @@ function lastPh(p){ for (let i=p.log.length-1;i>=0;i--) if (p.log[i].ph!=null) r
 function phHigh(p){ const m=lastPh(p); return !!(m && m.ph>p.cfg.bs.phMax); }
 function effCfg(p, mode){ // mode 'norm' = SpaBalancer/Normwerte
   const c=p.cfg; if (mode==='norm' || !isBS(p)) return c;
-  const b=c.bs; return {...c, phMin:b.phMin, phMax:b.phMax, phCritLow:b.phCritLow, phCrit:b.phCrit, usWeek:b.usWeek, basicWeek:b.basicWeek};
+  const b=c.bs; return {...c, phMin:b.phMin, phMax:b.phMax, phCritLow:b.phCritLow, phCrit:b.phCrit, usWeek:b.usWeek, basicWeek:b.basicWeek, usMin:0.1};
 }
 function getTasks(p){
-  if (!isBS(p)) return TASKS.filter(t=>t.k!=='ctrl');
+  if (!isBS(p)) return TASKS.filter(t=>t.k!=='germ');
   const b=p.cfg.bs;
   return TASKS.filter(t=>t.k!=='soft').map(t=>{
     if (t.k==='ph'){ const hi=phHigh(p);
       return hi ? {...t, name:'pH täglich messen (über Ziel)', days:1, fixed:true, start:null, note:`Der pH liegt über ${fmt(b.phMax,1)}. Jeden Tag messen und ggf. ${b.minusG} g pH-Minus geben, bis er im Ziel ${fmt(b.phMin,1)}–${fmt(b.phMax,1)} ist. Danach wieder wöchentlich.`}
                 : {...t, name:'Wöchentliche Kontrollmessung', days:b.ctrlDays, fixed:true, start:null, note:`Alle ${b.ctrlDays} Tage pH, UltraShock und Alkalinität mit dem PoolLab messen. Mit „Wasser messen – Schritt für Schritt“.`}; }
+    if (t.k==='germ') return {...t, days:p.cfg.germDays, fixed:true};
     if (t.k==='weekly') return {...t, name:`Wochendosis ${b.usWeek} ml UltraShock + ${b.basicWeek} ml Basic`, note:'Zwischen UltraShock und Basic mindestens 3 Stunden Abstand.'};
     if (t.k==='filter') return {...t, name:'Filter tauschen & ausspülen', days:b.rinseDays, fixed:true, start:null, note:`Sauberen Filter einsetzen, den ausgebauten nur ausspülen. Grundreinigung mit FilterClean erst nach ${p.cfg.filterDeepDays} Einsatztagen – die App zählt das je Filter mit.`};
     return t;
@@ -164,12 +166,13 @@ function defaultPool(type){
       phPlusGper01: 10,
       phMin:6.8, phMax:7.8, phCrit:8.0, phCritLow:6.5,
       usMin:0.3, usMax:5,
-      taMin:80, taMax:120, taPlusGper10:17,
+      taMin:80, taMax:120, taPlusGper10:17, ureaMax:1.0, germDays:30,
       hardMax:12,
       intervals: Object.fromEntries(TASKS.map(t=>[t.k,t.days])),
     },
     filledAt:null,
     tasks:{},          // k -> ISO zuletzt erledigt
+    germs:[],          // Keimtests {at, level, note, by}
     filters: type==='whirlpool' ? [1,2,3].map(n=>({n, status:n===1?'in':'spare', since:null, cleanings:0, lastClean:null, uses:0, inAt:null, useMs:0, rinses:0})) : [],
     phDrop:null,       // {start, doses:[ISO], ended}
     log:[],            // Messungen
@@ -223,16 +226,27 @@ function evaluate(m, pool, mode, now=Date.now()){
     if (m.clo2>c.usMax) R.push({s:'crit', t:'Nicht baden', a:'', d:'Hautreizungen möglich. Abdeckung offen lassen, Pumpen laufen lassen und warten, bis der Wert unter 5 mg/l liegt.'});
   }
   const usLow = m.clo2!=null && m.clo2<c.usMin;
-  if (cloudy || smell || green || (usLow && m.clo2<0.1)){
+  if (cloudy || smell || green || (!bsMode && usLow && m.clo2<0.1)){
     const ml = round5(c.shockPer1000*V);
-    R.push({s:'crit', t:'Schockbehandlung mit UltraShock', a:`${fmt(ml)} ml`, d:`${fmt(c.shockPer1000)} ml je 1.000 l bei laufenden Pumpen, mindestens 8 Stunden einwirken lassen. Baden erst, wenn der ClO₂-Wert unter 5 mg/l liegt. Filter reinigen. Bei Bedarf am Folgetag wiederholen.`});
-  } else if (usLow){
+    R.push({s:'crit', t:'Schockbehandlung mit UltraShock', a:`${fmt(ml)} ml`, d:(bsMode?'Wasser auffällig – kurz mit Bundschuh absprechen. Übliche Schockbehandlung: ':'')+`${fmt(c.shockPer1000)} ml je 1.000 l bei laufenden Pumpen, mindestens 8 Stunden einwirken lassen. Baden erst, wenn der ClO₂-Wert unter 5 mg/l liegt. Filter reinigen. Bei Bedarf am Folgetag wiederholen.`});
+  } else if (usLow && bsMode){
+    R.push({s:'warn', t:'UltraShock kaum nachweisbar – beobachten', a:'', d:'Nach Bundschuh kein Nachdosieren, solange das Wasser klar ist und nicht riecht. Beim nächsten Messen wieder prüfen. Bleibt es so oder kommen Trübung, Geruch oder schmierige Wände dazu: mit Bundschuh absprechen.'});
+  } else if (usLow && !bsMode){
     R.push({s:'warn', t:'UltraShock nachdosieren', a:`${fmt(c.usWeek)} ml`, d:`Ziel: mindestens ${fmt(c.usMin,1)} mg/l, gemessen am Tag nach der Zugabe${phase?' (wichtig in den ersten 2 Wochen)':''}.`});
   }
   if (cloudy) P.push({k:'look', l:'Wasserbild', v:m.look==='trüb'?'trüb':'leicht trüb', s:m.look==='trüb'?'crit':'warn', t:'Filter & UltraShock prüfen'});
   if (green) P.push({k:'look', l:'Wasserbild', v:'grünlich', s:'warn', t:'Filter & Dosierung prüfen'});
   if (m.look==='klar') P.push({k:'look', l:'Wasserbild', v:'klar', s:'ok', t:''});
   if (smell) P.push({k:'smell', l:'Geruch', v:'riecht', s:'warn', t:'Dosierung erhöhen'});
+  if (m.bio==='ja'){
+    P.push({k:'bio', l:'Wände/Filter', v:'schmierig', s:'warn', t:'Biofilm möglich'});
+    R.push({s:'warn', t:'Schmieriger Belag', a:'', d:'Ein schmieriger Film an Wänden oder Filter deutet auf Biofilm (Bakterien) hin. Filter grundreinigen, Wände abwischen und mit Bundschuh absprechen, ob eine Schockbehandlung nötig ist.'});
+  }
+  if (m.urea!=null){
+    const s = m.urea>pool.cfg.ureaMax*2?'crit':m.urea>pool.cfg.ureaMax?'warn':'ok';
+    P.push({k:'urea', l:'Harnstoff', v:fmt(m.urea,2)+' mg/l', s, t:s==='ok'?'geringe Belastung':'viel Eintrag durch Badende'});
+    if (s!=='ok') R.push({s, t:'Belastung durch Badende hoch', a:'', d:'Vor dem Baden duschen. Steigt der Wert weiter, ist ein Wasserwechsel sinnvoll.'});
+  }
   if (m.foam==='ja'){
     P.push({k:'foam', l:'Schaum', v:'ja', s:'warn', t:''});
     R.push({s:'warn', t:'Schaum', a:'', d:'Filter reinigen, vor dem Baden duschen (Kosmetik/Waschmittelreste). Bleibt der Schaum trotz Pflege, ist ein Wasserwechsel fällig.'});
@@ -310,6 +324,7 @@ function migrate(s){
     s.pools[k] = {...d, ...p, cfg:{...d.cfg, ...(p.cfg||{}), intervals:{...d.cfg.intervals, ...(p.cfg?.intervals||{})}}};
     const q=s.pools[k];
     if (!q.filters) q.filters=d.filters;
+    if (!q.germs) q.germs=[];
     q.cfg.bs = {...d.cfg.bs, ...(p.cfg?.bs||{})};
     if (!q.cfg.bs.v2){ q.cfg.bs.ctrlDays=7; q.cfg.bs.v2=1; } // wöchentliche Kontrolle (Wunsch 23.11.)
     q.filters.forEach(f=>{ if(f.useMs==null) f.useMs=0; if(f.rinses==null) f.rinses=0; if(f.status==='in' && !f.inAt) f.inAt=f.since||new Date().toISOString(); });
@@ -330,6 +345,7 @@ function mergeState(srv, loc){
     n.deletedDoses = [...new Set([...(n.deletedDoses||[]),...(o.deletedDoses||[])])].slice(-300);
     n.doses = uni(n.doses,o.doses,x=>x.at+'|'+x.what).filter(x=>!n.deletedDoses.includes(x.at+'|'+x.what)).slice(-400);
     n.baths = uni(n.baths,o.baths,x=>x.at).filter(x=>!n.deletedDoses.includes('bath|'+x.at)).slice(-300);
+    { const m=new Map(); [...(o.germs||[]),...(n.germs||[])].forEach(g=>m.set(g.at+'|'+g.level,g)); n.germs=[...m.values()].sort((a,b)=>a.at<b.at?-1:1).slice(-100); }
     n.deleted = [...new Set([...(n.deleted||[]),...(o.deleted||[])])].slice(-200);
     n.log = n.log.filter(x=>!n.deleted.includes(x.id)).slice(-400);
     for (const t of Object.keys(o.tasks||{})) if (!n.tasks[t] || o.tasks[t]>n.tasks[t]) n.tasks[t]=o.tasks[t];
@@ -505,7 +521,8 @@ function vHome(){
   <button class="btn full sec" data-view="help" style="margin:0 0 12px">🆘 Problem mit dem Wasser? Hilfe</button>
   ${isBS(p)?`<div class="card"><h2>Wasser nachgefüllt?</h2><p class="small" style="margin-top:0">Nach Bundschuh: ${p.cfg.bs.minusG} g pH-Minus und ${p.cfg.bs.softPer5} ml SoftWater je 5 Minuten Nachfüllen.</p>
     <button class="btn full sec" data-refill="1">💧 Nachfüllen eintragen</button></div>`:''}
-  <div class="card"><h2>Gebadet?</h2><p class="small" style="margin-top:0">Nach jedem Bad UltraShock zugeben: 5 ml pro Person, mindestens 10 ml.</p>
+  ${hygieneCard(p)}
+  <div class="card"><h2>Gebadet?</h2><p class="small" style="margin-top:0">${isBS(p)?'Nur notieren, wie viele gebadet haben – nach Bundschuh ohne Chemie. Hilft beim Hygiene-Check.':'Nach jedem Bad UltraShock zugeben: 5 ml pro Person, mindestens 10 ml.'}</p>
     <div class="seg" id="bathSeg">${[1,2,3,4,5,6].map(n=>`<button data-bath="${n}">${n} Pers.</button>`).join('')}</div>
     ${p.baths.length?`<div class="hint">Zuletzt: ${dtstr(p.baths[p.baths.length-1].at)}, ${p.baths[p.baths.length-1].persons} Pers.</div>`:''}
   </div>
@@ -551,6 +568,30 @@ function whoBanner(){
   return `<div class="banner"><b>Wer benutzt dieses Gerät?</b> Dann sieht man im Protokoll, wer gemessen oder dosiert hat.
    <div class="row" style="margin-top:8px"><input id="whoIn" placeholder="Vorname"><button class="btn" id="whoBtn">Speichern</button></div></div>`;
 }
+const GERM=[['unter 10² (kaum Keime)','ok'],['ca. 10³','ok'],['ca. 10⁴ (erhöht)','warn'],['10⁵ und mehr (hoch)','crit']];
+function hygieneCard(p){
+  if (!isBS(p)) return '';
+  const now=Date.now(), items=[];
+  const lastC = [...p.log].reverse().find(m=>m.clo2!=null);
+  if (lastC){ const s = lastC.clo2<0.1 ? 'warn' : 'ok'; items.push({l:'Desinfektion (UltraShock)', v:fmt(lastC.clo2,2)+' mg/l', s, t:s==='ok'?'nachweisbar':'kaum noch nachweisbar', at:lastC.at}); }
+  else items.push({l:'Desinfektion (UltraShock)', v:'–', s:'', t:'noch nicht gemessen'});
+  const lastS = p.log[p.log.length-1];
+  if (lastS){ const bad=[lastS.look&&lastS.look!=='klar'?'trüb/grünlich':'', lastS.smell==='ja'?'Geruch':'', lastS.foam==='ja'?'Schaum':'', lastS.bio==='ja'?'schmierig':''].filter(Boolean);
+    items.push({l:'Aussehen & Geruch', v:bad.length?bad.join(', '):'unauffällig', s:bad.length?(bad.length>1||lastS.bio==='ja'?'crit':'warn'):'ok', t:'', at:lastS.at}); }
+  const lastU = [...p.log].reverse().find(m=>m.urea!=null);
+  if (lastU){ const s=lastU.urea>p.cfg.ureaMax*2?'crit':lastU.urea>p.cfg.ureaMax?'warn':'ok'; items.push({l:'Harnstoff', v:fmt(lastU.urea,2)+' mg/l', s, t:'Eintrag durch Badende', at:lastU.at}); }
+  const lastG = p.germs[p.germs.length-1];
+  if (lastG){ const old=(now-new Date(lastG.at))/DAY>p.cfg.germDays*2; items.push({l:'Keimtest', v:GERM[lastG.level][0], s:old?'warn':GERM[lastG.level][1], t:old?'veraltet – neu testen':'', at:lastG.at}); }
+  else items.push({l:'Keimtest', v:'–', s:'', t:'noch keiner gemacht'});
+  if (p.filledAt){ const age=Math.floor((now-new Date(p.filledAt))/DAY); items.push({l:'Wasseralter', v:`${age} Tage`, s:age>365?'crit':age>182?'warn':'ok', t:age>182?'Wasserwechsel fällig':''}); }
+  const wk=p.baths.filter(b=>now-new Date(b.at)<7*DAY).reduce((a,b)=>a+b.persons,0);
+  items.push({l:'Badende (7 Tage)', v:`${wk} Pers.`, s:'', t:''});
+  const st=worst(items.map(i=>i.s));
+  return `<div class="card"><h2>Hygiene-Check <span class="tag ${st==='none'?'':st}">${{ok:'unauffällig',warn:'beobachten',crit:'handeln',none:'–'}[st]}</span></h2>
+   <p class="small" style="margin-top:0">Zusätzliche Sicherheit zu Bundschuhs Plan: Bakterien und Schmutz kann man nicht direkt sehen – diese Werte zeigen es indirekt.</p>
+   <div class="tiles">${items.map(i=>`<div class="tile ${i.s}"><div class="l">${i.l}</div><div class="v" style="font-size:17px">${i.v}</div><div class="t">${i.t}${i.at?`<span class="small"> · ${dstr(i.at)}</span>`:''}</div></div>`).join('')}</div>
+   ${st==='crit'||st==='warn'?`<p class="small" style="margin-bottom:0"><b>Was tun?</b> Filter grundreinigen, Wände abwischen, vor dem Baden duschen. Bleibt es auffällig: mit Bundschuh absprechen (Schockbehandlung oder Wasserwechsel). Unter „Hilfe“ stehen die Schritte.</p>`:''}</div>`;
+}
 function normCard(m, p){
   if (!isBS(p) || !m) return '';
   const e = evaluate(m, p, 'norm');
@@ -579,15 +620,23 @@ function vMeasure(){
       <div><label>Gesamthärte mg/l CaCO₃</label><input name="th" inputmode="decimal" placeholder="optional"></div>
     </div>
     <div class="row">
+      <div><label>Harnstoff mg/l</label><input name="urea" inputmode="decimal" placeholder="optional"></div>
+    </div>
+    <div class="row">
       <div><label>Temperatur °C</label><input name="temp" inputmode="decimal" placeholder="optional"></div>
       <div><label>Notiz</label><input name="note" placeholder="optional"></div>
     </div>
     <label>Wasserbild</label><div class="seg" data-name="look">${[['klar','klar'],['leicht','leicht trüb'],['trüb','trüb'],['grün','grünlich']].map(([v,l],i)=>`<button type="button" data-val="${v}" class="${i===0?'on':''}">${l}</button>`).join('')}</div>
     <label>Geruch</label><div class="seg" data-name="smell"><button type="button" data-val="nein" class="on">neutral</button><button type="button" data-val="ja">riecht</button></div>
     <label>Schaum</label><div class="seg" data-name="foam"><button type="button" data-val="nein" class="on">nein</button><button type="button" data-val="ja">ja</button></div>
+    <label>Wände oder Filter schmierig?</label><div class="seg" data-name="bio"><button type="button" data-val="nein" class="on">nein</button><button type="button" data-val="ja">ja, rutschig/schmierig</button></div>
     <button class="btn full" type="submit">Speichern &amp; bewerten</button>
   </form></div>
   <div id="evalOut"></div>
+  <div class="card"><h2>Keimtest eintragen</h2><p class="small" style="margin-top:0">Eintauchnährboden (Dip-Slide) nach 48 Std. mit der Vergleichskarte ablesen.</p>
+  <form id="gform"><label>Ergebnis (Kolonien je ml)</label><select name="level">${GERM.map((g,i)=>`<option value="${i}">${g[0]}</option>`).join('')}</select>
+  <label>Getestet am</label><input type="date" name="at" value="${now.toISOString().slice(0,10)}">
+  <button class="btn full sec">Keimtest speichern</button></form></div>
   <div class="card"><h2>Zugabe nachtragen</h2><p class="small" style="margin-top:0">Für Mittel, die schon eingefüllt wurden – auch mit früherem Datum.</p>
   <form id="dform"><div class="row"><div><label>Mittel</label><select name="what">${['UltraShock','Basic','SoftWater','pH-Minus','pH-Plus','Filterreiniger','Sonstiges'].map(x=>`<option>${x}</option>`).join('')}</select></div>
   <div><label>Menge</label><input name="amount" placeholder="z. B. 50 ml"></div></div>
@@ -651,8 +700,9 @@ function vTasks(){
 
 function vHistory(){
   const p=P(), L=[...p.log].reverse();
+  const germsHtml = p.germs.length?`<div class="card"><h2>Keimtests</h2><table>${[...p.germs].reverse().map(g=>`<tr><td>${dstr(g.at)}</td><td class="c-${GERM[g.level][1]}">${GERM[g.level][0]}</td><td class="small">${esc(g.by||'')}</td></tr>`).join('')}</table></div>`:'';
   const proto = p.doses.length?`<div class="card"><h2>Protokoll</h2><table>${[...p.doses].reverse().slice(0,60).map(d=>`<tr><td>${dtstr(d.at)}</td><td>${esc(d.what)}</td><td>${esc(d.amount)}</td><td class="small">${esc(d.by||'')}</td>${isAdmin()?`<td><button class="btn sm ghost" data-ddel="${esc(d.at+'|'+d.what)}">✕</button></td>`:''}</tr>`).join('')}</table></div>`:'';
-  if (!L.length) return `<div class="card"><p class="small">Noch keine Messungen.</p></div>${proto}`;
+  if (!L.length) return `<div class="card"><p class="small">Noch keine Messungen.</p></div>${germsHtml}${proto}`;
   const cell=(v,s,d)=>`<td class="c-${s||''}">${v==null?'–':fmt(v,d)}</td>`;
   return `<div class="card chart"><h2>pH-Verlauf</h2>${chart(p.log,'ph',[p.cfg.phMin,p.cfg.phMax],6.4,8.4)}</div>
   <div class="card chart"><h2>UltraShock (ClO₂) mg/l</h2>${chart(p.log,'clo2',[p.cfg.usMin,p.cfg.usMax],0,null)}</div>
@@ -710,6 +760,7 @@ function vSettings(){
    <div class="row"><div><label>ClO₂ min (mg/l)</label>${num('usMin',c.usMin)}</div><div><label>ClO₂ max Baden (mg/l)</label>${num('usMax',c.usMax)}</div></div>
    <label>Alka-Plus: g je +10 mg/l je 1.000 l</label>${num('taPlusGper10',c.taPlusGper10)}
    <div class="row"><div><label>Alkalinität min</label>${num('taMin',c.taMin)}</div><div><label>Alkalinität max</label>${num('taMax',c.taMax)}</div></div>
+   <div class="row"><div><label>Harnstoff Richtwert (mg/l)</label>${num('ureaMax',c.ureaMax)}</div><div><label>Keimtest alle (Tage)</label>${num('germDays',c.germDays,'1')}</div></div>
    <label>Wasserhärte „hart“ ab (°dH)</label>${num('hardMax',c.hardMax)}
    <h3>Filter</h3>
    <div class="row"><div><label>Lebensdauer (Monate)</label>${num('filterLifeMonths',c.filterLifeMonths,'1')}</div><div><label>Max. Reinigungen</label>${num('filterMaxClean',c.filterMaxClean,'1')}</div></div>
@@ -773,6 +824,12 @@ const HELP = [
     'Mittel: „Alka-Plus“ (Natriumhydrogencarbonat) aus dem Whirlpool-Fachhandel – pH-Minus, SoftWater, UltraShock usw. heben die Alkalinität nicht.',
     'Menge zeigt die App nach der Messung an (Ziel ca. 100 mg/l). Erst die Hälfte geben, in einem Eimer Wasser auflösen, bei laufenden Pumpen.',
     'Am nächsten Tag Alkalinität und pH neu messen, erst dann den pH korrigieren.']},
+  {k:'keim', t:'Keimtest auffällig / Wände schmierig', steps:[
+    'Filter herausnehmen und mit FilterClean grundreinigen (nicht nur ausspülen).',
+    'Wände und Wasserlinie abwischen, Abdeckung unten reinigen.',
+    'UltraShock-Wert messen – ist kaum etwas nachweisbar, mit Bundschuh eine Schockbehandlung absprechen (SpaBalancer: 50 ml je 1.000 l, 8 Std. einwirken).',
+    'Nach 2–3 Tagen erneut Keimtest machen.',
+    'Bleibt es hoch oder ist das Wasser älter als 6 Monate: Grundreinigung mit SystemFlush und Wasserwechsel.']},
   {k:'kalk', t:'Weiße Ablagerungen / Kalkrand', steps:[
     'pH messen – über 8 fällt Kalk aus. pH auf 7,2–7,6 senken.',
     'Gesamthärte prüfen; über 12 °dH regelmäßig SoftWater dosieren.',
@@ -799,7 +856,7 @@ function vHelp(){
 }
 
 /* ================= Geführte Messung ================= */
-let wiz = {step:0, v:{look:'klar',smell:'nein',foam:'nein'}, ev:null, checks:{}, saved:false};
+let wiz = {step:0, v:{look:'klar',smell:'nein',foam:'nein',bio:'nein'}, ev:null, checks:{}, saved:false};
 const WSTEPS = ['Vorbereiten','Probe & ZERO','Parameter','Messen','Werte','Dosieren','Aufräumen'];
 function wizNav(){
   const st=wiz.step;
@@ -869,6 +926,8 @@ function vWizard(){
     <label>Wie sieht das Wasser aus?</label>${seg('look',[['klar','klar'],['leicht','leicht trüb'],['trüb','trüb'],['grün','grünlich']])}
     <label>Riecht es?</label>${seg('smell',[['nein','neutral'],['ja','riecht']])}
     <label>Schaum?</label>${seg('foam',[['nein','nein'],['ja','ja']])}
+    <label>Wände oder Filter schmierig?</label>${seg('bio',[['nein','nein'],['ja','ja, rutschig/schmierig']])}
+    <label>Harnstoff mg/l <span class="small">(nur wenn mit Zusatz-Reagenz gemessen)</span></label><input data-wv="urea" inputmode="decimal" value="${v.urea??''}">
     </div><div class="row" style="margin-top:16px"><button class="btn ghost" data-wgo="-1">Zurück</button><button class="btn" id="wEval">Auswerten</button></div>`; }
   if (st===5){ const ev=wiz.ev;
     const todo=ev.recs.filter(r=>r.s!=='ok'||r.a);
@@ -896,7 +955,7 @@ function howTo(r){
 }
 function wizSave(){
   if (wiz.saved) return;
-  const p=P(), v=wiz.v, m={id:Date.now().toString(36), at:new Date().toISOString(), ph:v.ph, clo2:v.clo2, ta:v.ta, th:null, temp:null, note:'geführt', look:v.look, smell:v.smell, foam:v.foam, by:getWho()};
+  const p=P(), v=wiz.v, m={id:Date.now().toString(36), at:new Date().toISOString(), ph:v.ph, clo2:v.clo2, ta:v.ta, th:null, temp:null, note:'geführt', look:v.look, smell:v.smell, foam:v.foam, bio:v.bio||'nein', urea:v.urea??null, by:getWho()};
   p.log.push(m); if(p.log.length>400) p.log.shift(); if (m.ph!=null) p.tasks.ph=m.at;
   wiz.saved=true; save();
 }
@@ -918,8 +977,8 @@ const after = {
       e.preventDefault(); const f=new FormData(e.target);
       const n=k=>{const v=String(f.get(k)||'').replace(',','.').trim(); return v===''?null:Number(v);};
       const seg=k=>document.querySelector(`.seg[data-name="${k}"] .on`)?.dataset.val;
-      const m={id:Date.now().toString(36), at:new Date(f.get('at')||Date.now()).toISOString(), ph:n('ph'), clo2:n('clo2'), ta:n('ta'), th:n('th'), temp:n('temp'), note:String(f.get('note')||''), by:getWho(), look:seg('look'), smell:seg('smell'), foam:seg('foam')};
-      if ([m.ph,m.clo2,m.ta,m.th,m.temp].some(v=>v!=null&&isNaN(v))) return toast('Bitte nur Zahlen eintragen');
+      const m={id:Date.now().toString(36), at:new Date(f.get('at')||Date.now()).toISOString(), ph:n('ph'), clo2:n('clo2'), ta:n('ta'), th:n('th'), temp:n('temp'), note:String(f.get('note')||''), by:getWho(), look:seg('look'), smell:seg('smell'), foam:seg('foam'), bio:seg('bio'), urea:n('urea')};
+      if ([m.ph,m.clo2,m.ta,m.th,m.temp,m.urea].some(v=>v!=null&&isNaN(v))) return toast('Bitte nur Zahlen eintragen');
       const p=P(); p.log.push(m); p.log.sort((a,b)=>a.at<b.at?-1:1); if(p.log.length>400) p.log.splice(0,p.log.length-400);
       if (m.ph!=null) p.tasks.ph=m.at;
       save();
@@ -930,6 +989,8 @@ const after = {
     });
   },
   measureExtra(){
+    const g=document.getElementById('gform'); if(g) g.addEventListener('submit',e=>{ e.preventDefault(); const d=Object.fromEntries(new FormData(g)); const p=P(); const at=new Date((d.at||new Date().toISOString().slice(0,10))+'T12:00').toISOString();
+      p.germs.push({at, level:+d.level, by:getWho()}); p.germs.sort((a,b)=>a.at<b.at?-1:1); if(!p.tasks.germ||at>p.tasks.germ) p.tasks.germ=at; save(); toast('Keimtest gespeichert'); });
     const f=document.getElementById('dform'); if(!f) return;
     f.addEventListener('submit',e=>{ e.preventDefault(); const d=Object.fromEntries(new FormData(f)); const p=P(); const at=new Date(d.at||Date.now()).toISOString();
       p.doses.push({at, what:d.what+(d.note?` (${d.note})`:''), amount:d.amount||'', by:getWho()}); p.doses.sort((a,b)=>a.at<b.at?-1:1); if(p.doses.length>400) p.doses.shift();
@@ -954,7 +1015,7 @@ const after = {
     document.querySelectorAll('[data-wv]').forEach(inp=>inp.addEventListener('input',()=>{const t=inp.value.replace(',','.').trim(); wiz.v[inp.dataset.wv]= t===''?null:Number(t);}));
     document.querySelectorAll('[data-wcheck]').forEach(cb=>cb.addEventListener('change',()=>{wiz.checks[cb.dataset.wcheck]=cb.checked;}));
     const ev=document.getElementById('wEval'); if(ev) ev.onclick=()=>{
-      const v=wiz.v; if ([v.ph,v.clo2,v.ta].some(x=>x!=null&&isNaN(x))) return toast('Bitte nur Zahlen eintragen');
+      const v=wiz.v; if ([v.ph,v.clo2,v.ta,v.urea].some(x=>x!=null&&isNaN(x))) return toast('Bitte nur Zahlen eintragen');
       if (v.ph==null && v.clo2==null) return toast('Mindestens pH oder Chlordioxid eintragen');
       wiz.ev=evaluate({...v}, P()); wiz.checks={}; wiz.saved=false; wizSave(); wiz.step=5; render(); window.scrollTo(0,0);
     };
@@ -976,7 +1037,7 @@ const after = {
       const fc=n('filterCount'); if (fc!=null && fc>=0 && fc<=6 && fc!==p.filters.length){ while(p.filters.length<fc) p.filters.push({n:p.filters.length+1,status:p.filters.length?'spare':'in',since:null,cleanings:0,lastClean:null,uses:0}); p.filters.length=fc; }
       c.plan = f.get('plan')||c.plan;
       for (const k of ['phMin','phMax','minusG','dropDays','usWeek','basicWeek','softPer5','ctrlDays','rinseDays']){ const v=n('bs_'+k); if(v!=null) c.bs[k]=v; }
-      for (const k of ['filterDeepDays','filterMaxClean','shockPer1000','phMinusGper01','phPlusGper01','phMin','phMax','phCrit','phCritLow','usMin','usMax','taMin','taMax','taPlusGper10','hardMax']){ const v=n(k); if(v!=null) c[k]=v; }
+      for (const k of ['filterDeepDays','filterMaxClean','shockPer1000','phMinusGper01','phPlusGper01','phMin','phMax','phCrit','phCritLow','usMin','usMax','taMin','taMax','taPlusGper10','hardMax','ureaMax','germDays']){ const v=n(k); if(v!=null) c[k]=v; }
       TASKS.forEach(t=>{const v=n('int_'+t.k); if(v) c.intervals[t.k]=v;});
       save(); render(); toast('Gespeichert');
     });
@@ -1059,6 +1120,10 @@ document.addEventListener('click',e=>{
     else logDose(p, task.name+' erledigt');
     if (k==='change'){ p.filledAt=p.tasks[k]; }
     save(); render(); toast(task.name+' ✓');
+  }
+  else if (t.dataset.bath && isBS(P())){
+    const n=+t.dataset.bath, p=P(); p.baths.push({at:new Date().toISOString(), persons:n}); if(p.baths.length>300) p.baths.shift();
+    save(); render(); toast(`Bad mit ${n} Pers. notiert ✓`);
   }
   else if (t.dataset.bath){
     const n=+t.dataset.bath, ml=Math.max(10,5*n);

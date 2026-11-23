@@ -34,3 +34,7 @@ eigener Render-Dienst `spa-pflege`, eigene Datenbank und Zugänge.
   SpaBalancer/Normwerte als „Zusatz-Kontrolle“ (aufklappbar).
 - Filter: Einsatzzeit je Filter (`inAt`, `useMs`), Grundreinigung nach `filterDeepDays` (90) Einsatztagen,
   sonst nur ausspülen (`rinses`).
+- 23.11. nachmittags: Bundschuh-Plan ohne UltraShock nach dem Baden („Gebadet“ zählt nur Badende).
+  Hygiene-Check (Startseite): UltraShock-Restwert (<0,1 beobachten), Aussehen/Geruch/Schaum/schmierige Wände,
+  Harnstoff (optional, Zusatz-Reagenz), Keimtest (Eintauchnährboden, monatlich, eigene Liste `germs`),
+  Wasseralter, Badende der letzten 7 Tage.
