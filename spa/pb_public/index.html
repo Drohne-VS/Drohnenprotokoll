@@ -130,6 +130,8 @@ const TASKS = [
 ];
 
 const isBS = p => p.cfg.plan==='bundschuh';
+function lastPh(p){ for (let i=p.log.length-1;i>=0;i--) if (p.log[i].ph!=null) return p.log[i]; return null; }
+function phHigh(p){ const m=lastPh(p); return !!(m && m.ph>p.cfg.bs.phMax); }
 function effCfg(p, mode){ // mode 'norm' = SpaBalancer/Normwerte
   const c=p.cfg; if (mode==='norm' || !isBS(p)) return c;
   const b=c.bs; return {...c, phMin:b.phMin, phMax:b.phMax, phCritLow:b.phCritLow, phCrit:b.phCrit, usWeek:b.usWeek, basicWeek:b.basicWeek};
@@ -138,7 +140,9 @@ function getTasks(p){
   if (!isBS(p)) return TASKS.filter(t=>t.k!=='ctrl');
   const b=p.cfg.bs;
   return TASKS.filter(t=>t.k!=='soft').map(t=>{
-    if (t.k==='ph') return {...t, name:'Kontrollmessung mit PoolLab', days:b.ctrlDays, fixed:true, start:null, note:`Alle ${b.ctrlDays} Tage pH, UltraShock und Alkalinität messen – als Kontrolle. Mit „Wasser messen – Schritt für Schritt“.`};
+    if (t.k==='ph'){ const hi=phHigh(p);
+      return hi ? {...t, name:'pH täglich messen (über Ziel)', days:1, fixed:true, start:null, note:`Der pH liegt über ${fmt(b.phMax,1)}. Jeden Tag messen und ggf. ${b.minusG} g pH-Minus geben, bis er im Ziel ${fmt(b.phMin,1)}–${fmt(b.phMax,1)} ist. Danach wieder wöchentlich.`}
+                : {...t, name:'Wöchentliche Kontrollmessung', days:b.ctrlDays, fixed:true, start:null, note:`Alle ${b.ctrlDays} Tage pH, UltraShock und Alkalinität mit dem PoolLab messen. Mit „Wasser messen – Schritt für Schritt“.`}; }
     if (t.k==='weekly') return {...t, name:`Wochendosis ${b.usWeek} ml UltraShock + ${b.basicWeek} ml Basic`, note:'Zwischen UltraShock und Basic mindestens 3 Stunden Abstand.'};
     if (t.k==='filter') return {...t, name:'Filter tauschen & ausspülen', days:b.rinseDays, fixed:true, start:null, note:`Sauberen Filter einsetzen, den ausgebauten nur ausspülen. Grundreinigung mit FilterClean erst nach ${p.cfg.filterDeepDays} Einsatztagen – die App zählt das je Filter mit.`};
     return t;
@@ -153,7 +157,7 @@ function defaultPool(type){
       vol, volConfirmed: type==='whirlpool',
       filterLifeMonths:12, filterMaxClean:25, filterDeepDays:90,
       plan: type==='whirlpool' ? 'bundschuh' : 'spabalancer',
-      bs: { phMin:6.5, phMax:6.8, phCritLow:6.2, phCrit:7.6, minusG:30, usWeek:30, basicWeek:30, softPer5:40, ctrlDays:14, rinseDays:14, dropDays:3 },
+      bs: { phMin:6.5, phMax:6.8, phCritLow:6.2, phCrit:7.6, minusG:30, usWeek:30, basicWeek:30, softPer5:40, ctrlDays:7, rinseDays:14, dropDays:3 },
       ...defaultDoses(type, vol), dosesCustom:false,
       shockPer1000: 50,          // Schockbehandlung ml je 1.000 l (8 h einwirken)
       phMinusGper01: 10,         // g pH-Minus je 0,1 pH je 1.000 l (Etikett!)
@@ -197,7 +201,7 @@ function evaluate(m, pool, mode, now=Date.now()){
     const s = rate(m.ph, c.phMin, c.phMax, c.phCritLow, c.phCrit-0.0001);
     P.push({k:'ph', l:'pH-Wert', v:fmt(m.ph,2), s, t: s==='ok'?`Ziel ${fmt(c.phMin,1)}–${fmt(c.phMax,1)}` : m.ph>c.phMax ? (bsMode?`über Ziel ${fmt(c.phMin,1)}–${fmt(c.phMax,1)}`:(m.ph>=c.phCrit?'zu hoch – Kalkausfall möglich':'leicht zu hoch')) : (bsMode&&m.ph<c.phCritLow?'zu sauer':'zu niedrig')});
     if (bsMode && m.ph>c.phMax){
-      R.push({s:m.ph>=c.phCrit?'crit':'warn', t:'pH-Minus zugeben', a:`${fmt(b.minusG)} g`, d:`Nach Bundschuh: ${b.minusG} g bei laufenden Pumpen. Am nächsten Tag nur den pH messen (Kammer 1) – liegt er noch über ${fmt(c.phMax,1)}, wieder ${b.minusG} g. Höchstens ${b.dropDays} Tage hintereinander.`});
+      R.push({s:m.ph>=c.phCrit?'crit':'warn', t:'pH-Minus zugeben', a:`${fmt(b.minusG)} g`, d:`Nach Bundschuh: ${b.minusG} g bei laufenden Pumpen. Ab jetzt jeden Tag den pH messen (nur Kammer 1 reicht) und jeweils ${b.minusG} g geben, solange er über ${fmt(c.phMax,1)} liegt. Ist er im Ziel, kein pH-Minus mehr – dann nur noch wöchentlich messen.`});
     } else if (bsMode && m.ph<c.phMin){
       R.push({s:m.ph<c.phCritLow?'crit':'warn', t:'Kein pH-Minus mehr geben', a:'', d:m.ph<c.phCritLow?`pH unter ${fmt(c.phCritLow,1)} ist zu sauer (Korrosion, Hautreizung möglich). Auch beim Nachfüllen kein pH-Minus. Bundschuh/Armstark fragen – ggf. Alka-Plus zugeben.`:'Der pH ist unter dem Ziel. Beim nächsten Nachfüllen das pH-Minus weglassen und in ein paar Tagen erneut messen.'});
     } else if (m.ph>c.phMax){
@@ -307,6 +311,7 @@ function migrate(s){
     const q=s.pools[k];
     if (!q.filters) q.filters=d.filters;
     q.cfg.bs = {...d.cfg.bs, ...(p.cfg?.bs||{})};
+    if (!q.cfg.bs.v2){ q.cfg.bs.ctrlDays=7; q.cfg.bs.v2=1; } // wöchentliche Kontrolle (Wunsch 23.11.)
     q.filters.forEach(f=>{ if(f.useMs==null) f.useMs=0; if(f.rinses==null) f.rinses=0; if(f.status==='in' && !f.inAt) f.inAt=f.since||new Date().toISOString(); });
     if (k==='whirlpool' && !q.cfg.volConfirmed && q.cfg.vol===1300){ q.cfg.vol=1325; q.cfg.volConfirmed=true; if(q.name==='Whirlpool') q.name='Cameo'; if(!q.cfg.dosesCustom) Object.assign(q.cfg, defaultDoses('whirlpool',1325)); }
   }
@@ -489,7 +494,7 @@ function vHome(){
   const sLabel = {ok:'Wasser in Ordnung', warn:'Handlungsbedarf', crit:'Sofort handeln', none:'Noch keine Messung'};
   return `${banners()}${whoBanner()}
   ${isBS(p)?`<div class="small" style="margin:-4px 0 8px">Pflegeplan: <b>Bundschuh</b> · pH-Ziel ${fmt(p.cfg.bs.phMin,1)}–${fmt(p.cfg.bs.phMax,1)}</div>`:''}
-  ${dropBanner(p,last)}
+  ${dropBanner(p)}
   <button class="btn full" data-view="wizard" style="margin:0 0 12px;padding:14px;font-size:16px">🧪 Wasser messen – Schritt für Schritt</button>
   <div class="card status ${ev?ev.status:'none'}">
     <span class="dot"></span>
@@ -511,21 +516,28 @@ function vHome(){
    :'<p class="small">Nichts fällig. 👍</p>'}</div>`;
 }
 
-function dropBanner(p,last){
-  if (!isBS(p)) return '';
-  const b=p.cfg.bs, d=p.phDrop, today=new Date().toDateString();
-  if (d && !d.ended){
-    const n=d.doses.length, doneToday=d.doses.some(x=>new Date(x).toDateString()===today);
-    if (n>=b.dropDays) return '';
-    return `<div class="card status warn" style="display:block"><b>pH-Absenkung – ${n} von ${b.dropDays} Gaben erledigt</b>
-      ${doneToday?`<p class="small">Heute schon erledigt. Morgen zuerst den pH messen (nur Kammer 1).</p>`:
-      `<p class="small">1. Zuerst den pH messen (nur Kammer 1 mit Phenol Red).<br>2. Liegt er <b>über ${fmt(b.phMax,1)}</b> → <b>${b.minusG} g pH-Minus</b> bei laufenden Pumpen zugeben.<br>3. Liegt er schon bei ${fmt(b.phMax,1)} oder darunter → Absenkung beenden.</p>
-      <button class="btn full" data-drop="dose">✓ ${b.minusG} g pH-Minus eingefüllt</button>`}
-      <button class="btn full ghost" data-drop="end">pH passt – Absenkung beenden</button></div>`;
-  }
-  if (last && last.ph!=null && last.ph>b.phMax && isAdmin())
-    return `<button class="btn full sec" data-drop="start" style="margin:0 0 12px">pH-Absenkung starten (bis ${b.dropDays} Tage × ${b.minusG} g)</button>`;
-  return '';
+function dropBanner(p){
+  if (!isBS(p) || !phHigh(p)) return '';
+  const b=p.cfg.bs, m=lastPh(p), today=new Date().toDateString();
+  const measuredToday = new Date(m.at).toDateString()===today;
+  const dosedToday = p.doses.some(d=>/pH-Minus/.test(d.what) && !/Nachfüllen/.test(d.what) && new Date(d.at).toDateString()===today);
+  return `<div class="card status warn" style="display:block"><b>pH über Ziel – täglich messen</b>
+    <p class="small">Letzter pH: <b>${fmt(m.ph,2)}</b> (${dtstr(m.at)}). Jeden Tag messen und ${b.minusG} g pH-Minus geben, bis er bei ${fmt(b.phMin,1)}–${fmt(b.phMax,1)} ist. Danach nur noch wöchentlich messen.</p>
+    ${dosedToday ? `<p class="small"><b>✓ Heute erledigt.</b> Morgen wieder messen.</p>`
+      : measuredToday ? `<button class="btn full" data-phdose="1">✓ ${b.minusG} g pH-Minus eingefüllt</button>`
+      : `<button class="btn full" data-phquick="1">pH jetzt messen</button>`}
+    ${measuredToday && !dosedToday ? `<button class="btn full ghost" data-phquick="1">pH nochmal messen</button>`:''}</div>`;
+}
+function openPhQuick(){
+  document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card"><h2>pH schnell messen</h2>
+   <ol class="small" style="padding-left:18px;margin:0 0 8px">
+    <li>PoolLab einschalten, Kammer 1 mit 10 ml Wasser füllen, Deckel zu, <b>ZERO</b>.</li>
+    <li>Unten im Display muss bei T1 <b>PH</b> stehen.</li>
+    <li>${kdot(1)} 1 Tablette <b>Phenol Red</b> in Kammer 1, mit dem <b>weißen</b> Stab zerdrücken und rühren, Deckel zu.</li>
+    <li><b>T1</b> kurz drücken, dann <b>OK/TEST</b>. Warten, bis der Wert erscheint.</li>
+    <li>Danach Küvette ausspülen.</li></ol>
+   <label>pH-Wert (Display: PH)</label><input id="pq_val" inputmode="decimal" placeholder="z. B. 7,1">
+   <button class="btn full" data-phsave="1">Speichern</button><button class="btn full ghost" data-close="1">Abbrechen</button></div></div>`;
 }
 function dueHint(p,k){
   const c=effCfg(p);
@@ -682,9 +694,9 @@ function vSettings(){
    <h3>Pflegeplan</h3>
    <select name="plan"><option value="bundschuh" ${c.plan==='bundschuh'?'selected':''}>Bundschuh (Händler) – Norm nur als Kontrolle</option><option value="spabalancer" ${c.plan!=='bundschuh'?'selected':''}>SpaBalancer-Anleitung / Normwerte</option></select>
    <div class="row"><div><label>Bundschuh pH min</label>${num('bs_phMin',c.bs.phMin)}</div><div><label>Bundschuh pH max</label>${num('bs_phMax',c.bs.phMax)}</div></div>
-   <div class="row"><div><label>pH-Minus je Gabe (g)</label>${num('bs_minusG',c.bs.minusG,'1')}</div><div><label>Absenkung max. Tage</label>${num('bs_dropDays',c.bs.dropDays,'1')}</div></div>
+   <div class="row"><div><label>pH-Minus je Gabe (g)</label>${num('bs_minusG',c.bs.minusG,'1')}</div><div></div></div>
    <div class="row"><div><label>UltraShock/Woche (ml)</label>${num('bs_usWeek',c.bs.usWeek,'5')}</div><div><label>Basic/Woche (ml)</label>${num('bs_basicWeek',c.bs.basicWeek,'5')}</div></div>
-   <div class="row"><div><label>SoftWater je 5 Min. Nachfüllen (ml)</label>${num('bs_softPer5',c.bs.softPer5,'5')}</div><div><label>Kontrollmessung alle (Tage)</label>${num('bs_ctrlDays',c.bs.ctrlDays,'1')}</div></div>
+   <div class="row"><div><label>SoftWater je 5 Min. Nachfüllen (ml)</label>${num('bs_softPer5',c.bs.softPer5,'5')}</div><div><label>Kontrollmessung (pH im Ziel) alle (Tage)</label>${num('bs_ctrlDays',c.bs.ctrlDays,'1')}</div></div>
    <div class="row"><div><label>Filter tauschen/ausspülen alle (Tage)</label>${num('bs_rinseDays',c.bs.rinseDays,'1')}</div><div><label>Grundreinigung nach Einsatztagen</label>${num('filterDeepDays',c.filterDeepDays,'1')}</div></div>
    <h3>Dosierung (SpaBalancer/Norm)</h3>
    <div class="row"><div><label>UltraShock wöchentlich (ml)</label>${num('usWeek',c.usWeek,'5')}</div><div><label>Basic wöchentlich (ml)</label>${num('basicWeek',c.basicWeek,'5')}</div></div>
@@ -993,7 +1005,7 @@ const after = {
 };
 
 document.addEventListener('click',e=>{
-  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wtick],[data-bathok],[data-ddel],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help],[data-frinse],[data-frinsein],[data-drop],[data-refill],[data-refillok]'); if(!t) return;
+  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wtick],[data-bathok],[data-ddel],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help],[data-frinse],[data-frinsein],[data-phquick],[data-phsave],[data-phdose],[data-refill],[data-refillok]'); if(!t) return;
   const p0=P(), F=n=>p0.filters.find(f=>f.n===+n), now=new Date().toISOString();
   if (t.dataset.close!==undefined){ if(e.target===t || t.tagName==='BUTTON') closeModal(); return; }
   if (t.dataset.wgo){ wiz.step=Math.max(0,Math.min(6,wiz.step+ +t.dataset.wgo)); if(wiz.step===5&&!wiz.ev) wiz.step=4; render(); window.scrollTo(0,0); return; }
@@ -1007,11 +1019,12 @@ document.addEventListener('click',e=>{
   if (t.dataset.frinse){ const f=F(t.dataset.frinse); f.rinses=(f.rinses||0)+1; f.status='spare'; logDose(p0, `Filter ${f.n} ausgespült`); save(); render(); toast(`Filter ${f.n} ausgespült`); return; }
   if (t.dataset.fcleanin){ const f=F(t.dataset.fcleanin); f.cleanings++; f.lastClean=now; f.useMs=0; f.inAt=now; if(!f.since) f.since=now; p0.tasks.filter=now; logDose(p0, `Filter ${f.n} grundgereinigt (eingebaut)`, `${f.cleanings}. Grundreinigung`); closeModal(); save(); render(); toast(`Filter ${f.n}: ${f.cleanings}. Grundreinigung`); return; }
   if (t.dataset.frinsein){ const f=F(t.dataset.frinsein); f.rinses=(f.rinses||0)+1; p0.tasks.filter=now; logDose(p0, `Filter ${f.n} ausgespült (eingebaut)`); closeModal(); save(); render(); toast(`Filter ${f.n} ausgespült`); return; }
-  if (t.dataset.drop){ const b=p0.cfg.bs;
-    if (t.dataset.drop==='start'){ p0.phDrop={start:now, doses:[], ended:null}; logDose(p0,'pH-Absenkung gestartet'); }
-    if (t.dataset.drop==='dose' && p0.phDrop){ p0.phDrop.doses.push(now); logDose(p0, `pH-Minus (Absenkung ${p0.phDrop.doses.length}/${b.dropDays})`, `${b.minusG} g`); if (p0.phDrop.doses.length>=b.dropDays) p0.phDrop.ended=now; }
-    if (t.dataset.drop==='end' && p0.phDrop){ p0.phDrop.ended=now; logDose(p0,'pH-Absenkung beendet'); }
-    save(); render(); toast('Eingetragen ✓'); return; }
+  if (t.dataset.phquick){ openPhQuick(); return; }
+  if (t.dataset.phsave){ const v=String(document.getElementById('pq_val').value).replace(',','.').trim(), ph=Number(v);
+    if (v===''||isNaN(ph)||ph<5||ph>9.5) return toast('Bitte einen pH-Wert eintragen, z. B. 7,1');
+    p0.log.push({id:Date.now().toString(36), at:now, ph, clo2:null, ta:null, th:null, temp:null, note:'nur pH', by:getWho()}); p0.tasks.ph=now;
+    closeModal(); save(); render(); toast(ph>p0.cfg.bs.phMax?`pH ${fmt(ph,2)} – noch über Ziel`:`pH ${fmt(ph,2)} – im Ziel ✓`); return; }
+  if (t.dataset.phdose){ const b=p0.cfg.bs; logDose(p0, 'pH-Minus (pH über Ziel)', `${b.minusG} g`); save(); render(); toast('Eingetragen ✓'); return; }
   if (t.dataset.refill){ const b=p0.cfg.bs, last=p0.log[p0.log.length-1];
     document.getElementById('modal').innerHTML=`<div class="modal" data-close="1"><div class="card"><h2>Wasser nachgefüllt</h2>
       <label>Wie lange lief der Schlauch? (Minuten)</label><input type="number" id="rf_min" min="1" step="1" value="5" inputmode="numeric">
