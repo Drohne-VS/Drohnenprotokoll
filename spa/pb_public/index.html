@@ -143,7 +143,7 @@ function defaultPool(type){
       phPlusGper01: 10,
       phMin:6.8, phMax:7.8, phCrit:8.0, phCritLow:6.5,
       usMin:0.3, usMax:5,
-      taMin:80, taMax:120,
+      taMin:80, taMax:120, taPlusGper10:17,
       hardMax:12,
       intervals: Object.fromEntries(TASKS.map(t=>[t.k,t.days])),
     },
@@ -214,7 +214,8 @@ function evaluate(m, pool, now=Date.now()){
   if (m.ta!=null){
     const s = rate(m.ta, c.taMin, c.taMax, 50, 180);
     P.push({k:'ta', l:'Alkalinität', v:fmt(m.ta)+' mg/l', s, t:s==='ok'?`Ziel ${c.taMin}–${c.taMax}`:(m.ta<c.taMin?'zu niedrig – pH schwankt':'zu hoch – pH steigt')});
-    if (m.ta<c.taMin) R.push({s:'warn', t:'Alkalinität anheben', a:'', d:'Mit Alkalinitäts-Plus nach Etikett. Danach pH erneut prüfen.'});
+    if (m.ta<c.taMin){ const g=Math.max(5,Math.round((100-m.ta)/10*c.taPlusGper10*V));
+      R.unshift({s:m.ta<50?'crit':'warn', t:'Alkalinität anheben (zuerst!)', a:`ca. ${fmt(g)} g Alka-Plus`, d:`Ziel ca. 100 mg/l. Mittel: „Alka-Plus“ (Natriumhydrogencarbonat) – ist nicht im SpaBalancer-Set, gibt es im Whirlpool-Fachhandel. Erst die Hälfte (${fmt(Math.round(g/2))} g) in einem Eimer Wasser auflösen und bei laufenden Pumpen zugeben, am nächsten Tag Alkalinität und pH neu messen. Den pH erst danach korrigieren – pH-Minus senkt die Alkalinität zusätzlich.`}); }
     if (m.ta>c.taMax) R.push({s:'warn', t:'Alkalinität senken', a:'', d:'Mit pH-Minus in kleinen Schritten senken, das senkt auch die Alkalinität.'});
   }
   // Härte
@@ -628,6 +629,7 @@ function vSettings(){
    <div class="row"><div><label>pH min</label>${num('phMin',c.phMin)}</div><div><label>pH max</label>${num('phMax',c.phMax)}</div></div>
    <div class="row"><div><label>pH kritisch ab</label>${num('phCrit',c.phCrit)}</div><div><label>pH kritisch unter</label>${num('phCritLow',c.phCritLow)}</div></div>
    <div class="row"><div><label>ClO₂ min (mg/l)</label>${num('usMin',c.usMin)}</div><div><label>ClO₂ max Baden (mg/l)</label>${num('usMax',c.usMax)}</div></div>
+   <label>Alka-Plus: g je +10 mg/l je 1.000 l</label>${num('taPlusGper10',c.taPlusGper10)}
    <div class="row"><div><label>Alkalinität min</label>${num('taMin',c.taMin)}</div><div><label>Alkalinität max</label>${num('taMax',c.taMax)}</div></div>
    <label>Wasserhärte „hart“ ab (°dH)</label>${num('hardMax',c.hardMax)}
    <h3>Filter</h3>
@@ -687,6 +689,11 @@ const HELP = [
     'pH prüfen – zu niedrig oder zu hoch reizt die Haut.',
     'Nach dem Baden abduschen.',
     'Beschwerden bleiben: nicht weiter baden und ärztlich abklären lassen.']},
+  {k:'alka', t:'Alkalinität zu niedrig', steps:[
+    'Alkalinität (TA) hält den pH-Wert stabil. Zu niedrig → pH springt hin und her.',
+    'Mittel: „Alka-Plus“ (Natriumhydrogencarbonat) aus dem Whirlpool-Fachhandel – pH-Minus, SoftWater, UltraShock usw. heben die Alkalinität nicht.',
+    'Menge zeigt die App nach der Messung an (Ziel ca. 100 mg/l). Erst die Hälfte geben, in einem Eimer Wasser auflösen, bei laufenden Pumpen.',
+    'Am nächsten Tag Alkalinität und pH neu messen, erst dann den pH korrigieren.']},
   {k:'kalk', t:'Weiße Ablagerungen / Kalkrand', steps:[
     'pH messen – über 8 fällt Kalk aus. pH auf 7,2–7,6 senken.',
     'Gesamthärte prüfen; über 12 °dH regelmäßig SoftWater dosieren.',
@@ -722,42 +729,62 @@ function wizNav(){
 function wizBtns(next='Weiter', back=true){
   return `<div class="row" style="margin-top:16px">${back&&wiz.step>0?`<button class="btn ghost" data-wgo="-1">Zurück</button>`:'<span></span>'}<button class="btn" data-wgo="1">${next}</button></div>`;
 }
+const KAM=[{n:1,wert:'pH-Wert',disp:'pH',tab:'Phenol Red',stab:'weiß',col:'#e9eef2',bd:'#9aa9b5',when:'jedes Mal'},
+  {n:2,wert:'UltraShock',disp:'Chlordioxid / ClO₂',tab:'DPD No. 1',stab:'blau',col:'#2f6fd6',bd:'#2f6fd6',when:'jedes Mal'},
+  {n:3,wert:'Alkalinität',disp:'Alkalinität / TA',tab:'Alkalinity-M',stab:'rot',col:'#d63b2f',bd:'#d63b2f',when:'1× pro Woche'}];
+function kdot(n){ const k=KAM[n-1]; return `<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${k.col};border:1px solid ${k.bd};vertical-align:-1px"></span>`; }
+function kamTable(){ return `<table style="margin:6px 0 8px"><tr><th>Kammer</th><th>Messwert</th><th>Tablette</th><th>Stab</th><th>Wann</th></tr>${KAM.map(k=>`<tr><td>${kdot(k.n)} ${k.n}</td><td>${k.wert}<div class="small">Display: ${k.disp}</div></td><td><b>${k.tab}</b></td><td>${k.stab}</td><td class="small">${k.when}</td></tr>`).join('')}</table>`; }
+function ticks(items, key){
+  wiz.ticks = wiz.ticks || {};
+  return items.map(([t,d],i)=>{ const id=key+'_'+i, on=!!wiz.ticks[id];
+    return `<div class="rec" data-wtick="${id}" style="cursor:pointer;${on?'opacity:.55':''}"><span style="flex:none;width:24px;height:24px;border-radius:6px;border:2px solid var(--brand);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:${on?'var(--brand)':'transparent'}">${on?'✓':''}</span><div><div>${t}</div>${d?`<div class="small">${d}</div>`:''}</div></div>`; }).join('');
+}
 function step(n, title, body){ return `<div class="rec"><div style="font-weight:700;color:var(--brand);min-width:22px">${n}</div><div><b>${title}</b>${body?`<div class="small">${body}</div>`:''}</div></div>`; }
 function vWizard(){
   const p=P(), st=wiz.step;
   let h='';
   if (st===0) h=`<div class="card"><h2>1. Vorbereiten</h2>
-    ${step('•','Das brauchst du','PoolLab 2.0, die 10-ml-Spritze, die drei Rührstäbe und die Tabletten:')}
-    <table style="margin:6px 0 4px"><tr><th>Messwert</th><th>Tablette</th><th>Wann</th></tr>
-    <tr><td>pH-Wert</td><td>Phenol Red</td><td>jedes Mal</td></tr>
-    <tr><td>UltraShock (Chlordioxid)</td><td>DPD No. 1</td><td>jedes Mal</td></tr>
-    <tr><td>Alkalinität</td><td>Alkalinity-M</td><td>1× pro Woche</td></tr></table>
+    ${step('•','Das brauchst du','PoolLab 2.0, die 10-ml-Spritze, die drei Rührstäbe (weiß, blau, rot) und diese Tabletten:')}
+    ${kamTable()}
+    ${step('•','DPD No. 3 und CYA-Test brauchst du nicht','Die sind nur für Chlor-Pflege.')}
     ${step('•','Tabletten nicht mit den Fingern anfassen','Direkt aus der Folie in die Kammer drücken. Fett und Schweiß verfälschen das Ergebnis.')}
     ${step('•','Düsen aus, Abdeckung auf','Wasser kurz zur Ruhe kommen lassen.')}
     </div>${wizBtns()}`;
   if (st===1) h=`<div class="card"><h2>2. Wasserprobe & Nullabgleich</h2>
-    ${step(1,'PoolLab einschalten','On/Off-Taste ca. 3 Sekunden drücken.')}
-    ${step(2,'Die drei Klappdeckel öffnen','')}
-    ${step(3,'Jede Kammer mit 10 ml Wasser füllen','Wasser mit der Spritze etwa ellenbogentief und nicht direkt an einer Düse entnehmen. Die Spritze liefert genau 10 ml.')}
-    ${step(4,'Deckel schließen und ZERO drücken','Der Nullabgleich rechnet die Trübung heraus. Er ist nur einmal nach dem Einschalten nötig.')}
+    ${ticks([
+      ['PoolLab einschalten','On/Off-Taste ca. 3 Sekunden drücken.'],
+      ['Alle drei Klappdeckel öffnen',''],
+      ['Jede Kammer mit 10 ml Wasser füllen','Mit der Spritze etwa ellenbogentief und nicht direkt an einer Düse entnehmen. Die Spritze liefert genau 10 ml.'],
+      ['Alle drei Deckel schließen',''],
+      ['ZERO drücken und warten, bis es fertig ist','Der Nullabgleich rechnet die Trübung heraus – nur einmal nach dem Einschalten nötig.'],
+    ],'s1')}
     </div>${wizBtns()}`;
-  if (st===2) h=`<div class="card"><h2>3. Messwerte auswählen</h2>
-    ${step(1,'Mit den T-Tasten je Kammer einen Messwert wählen','Taste 2 Sekunden halten → Liste öffnet sich.')}
-    <table style="margin:6px 0"><tr><th>Kammer</th><th>Messwert im Display</th></tr>
-    <tr><td>1</td><td>pH</td></tr><tr><td>2</td><td>Chlordioxid (ClO₂)</td></tr><tr><td>3</td><td>Alkalinität (nur 1× pro Woche, sonst leer lassen)</td></tr></table>
-    ${step('!','Wenn das Gerät eine andere Kammer verlangt','Manche Messwerte gehen nur in einer bestimmten Kammer. Dann der Anzeige folgen, Hauptsache die Tablette landet in der richtigen Kammer.')}
+  if (st===2) h=`<div class="card"><h2>3. Messwerte einstellen</h2>
+    <p class="small" style="margin-top:0">Jede Kammer hat oben eine eigene T-Taste. Darüber legst du fest, was in der Kammer gemessen wird.</p>
+    ${ticks([
+      ['T-Taste von <b>Kammer 1</b> 2 Sek. halten → im Menü <b>pH</b> wählen',''],
+      ['T-Taste von <b>Kammer 2</b> 2 Sek. halten → <b>Chlordioxid (ClO₂)</b> wählen','Das ist der UltraShock-Wert.'],
+      ['T-Taste von <b>Kammer 3</b> 2 Sek. halten → <b>Alkalinität (TA)</b> wählen','Nur 1× pro Woche. Sonst Kammer 3 leer lassen (T-Taste 2× kurz drücken löscht die Auswahl).'],
+    ],'s2')}
+    ${step('!','Verlangt das Gerät eine andere Kammer?','Manche Werte gehen nur in einer bestimmten Kammer. Dann der Anzeige folgen und die Tablette in genau diese Kammer geben.')}
     </div>${wizBtns()}`;
   if (st===3) h=`<div class="card"><h2>4. Tabletten zugeben & messen</h2>
-    ${step(1,'Passende Tablette in jede Kammer','pH → Phenol Red · Chlordioxid → DPD No. 1 · Alkalinität → Alkalinity-M')}
-    ${step(2,'Kräftig zerdrücken und verrühren','Für jede Kammer einen eigenen Rührstab nehmen und immer dieselbe Farbe verwenden, z. B. weiß = pH, blau = ClO₂, rot = Alkalinität. Rühren, bis nichts mehr ungelöst ist.')}
-    ${step(3,'Deckel schließen','')}
-    ${step(4,'T-Taste jeder Kammer drücken, dann OK/TEST','Der Countdown startet. Nicht abbrechen, warten bis die Ergebnisse erscheinen.')}
+    <p class="small" style="margin-top:0">Der Reihe nach abhaken:</p>
+    ${ticks([
+      [`${kdot(1)} <b>Kammer 1:</b> 1 Tablette <b>Phenol Red</b> rein`, 'Mit dem <b>weißen</b> Stab kräftig zerdrücken und rühren, bis nichts mehr ungelöst ist. Deckel 1 schließen.'],
+      [`${kdot(2)} <b>Kammer 2:</b> 1 Tablette <b>DPD No. 1</b> rein`, 'Mit dem <b>blauen</b> Stab zerdrücken und rühren, bis gelöst. Deckel 2 schließen.'],
+      [`${kdot(3)} <b>Kammer 3:</b> 1 Tablette <b>Alkalinity-M</b> rein`, 'Nur wenn Alkalinität gemessen wird. Mit dem <b>roten</b> Stab zerdrücken und rühren. Deckel 3 schließen.'],
+      ['<b>T-Taste jeder befüllten Kammer</b> 1× kurz drücken','Damit bestätigst du: Tablette ist gelöst. Bei der Kammer startet ein Countdown.'],
+      ['<b>OK/TEST</b> drücken ⚠️','Wichtig! Ohne OK/TEST kommt kein Ergebnis – das Gerät wartet sonst einfach.'],
+      ['Warten, bis die Werte im Display stehen','Nicht abbrechen. Dauert es mehrere Minuten ohne Ergebnis, fehlt meist ein Tastendruck: T-Tasten und OK/TEST prüfen.'],
+    ],'s3')}
     </div>${wizBtns('Ergebnisse eintragen')}`;
   if (st===4){ const v=wiz.v, seg=(k,opts)=>`<div class="seg" data-wseg="${k}">${opts.map(([val,l])=>`<button type="button" data-val="${val}" class="${v[k]===val?'on':''}">${l}</button>`).join('')}</div>`;
     h=`<div class="card"><h2>5. Werte eintragen</h2>
-    <div class="row"><div><label>pH</label><input data-wv="ph" inputmode="decimal" value="${v.ph??''}" placeholder="z. B. 7,4"></div>
-    <div><label>Chlordioxid mg/l</label><input data-wv="clo2" inputmode="decimal" value="${v.clo2??''}" placeholder="z. B. 0,4"></div></div>
-    <label>Alkalinität mg/l (falls gemessen)</label><input data-wv="ta" inputmode="decimal" value="${v.ta??''}">
+    <p class="small" style="margin-top:0">Die Werte genau so abtippen, wie sie im Display stehen.</p>
+    <label>${kdot(1)} Kammer 1 · pH-Wert <span class="small">(Display: pH)</span></label><input data-wv="ph" inputmode="decimal" value="${v.ph??''}" placeholder="z. B. 7,4">
+    <label>${kdot(2)} Kammer 2 · UltraShock <span class="small">(Display: Chlordioxid / ClO₂, in mg/l)</span></label><input data-wv="clo2" inputmode="decimal" value="${v.clo2??''}" placeholder="z. B. 0,40">
+    <label>${kdot(3)} Kammer 3 · Alkalinität <span class="small">(Display: TA, in mg/l – nur wenn gemessen)</span></label><input data-wv="ta" inputmode="decimal" value="${v.ta??''}" placeholder="z. B. 90">
     <label>Wie sieht das Wasser aus?</label>${seg('look',[['klar','klar'],['leicht','leicht trüb'],['trüb','trüb'],['grün','grünlich']])}
     <label>Riecht es?</label>${seg('smell',[['nein','neutral'],['ja','riecht']])}
     <label>Schaum?</label>${seg('foam',[['nein','nein'],['ja','ja']])}
@@ -793,7 +820,7 @@ function wizSave(){
 function wizFinish(){
   const p=P();
   (wiz.ev?.recs||[]).forEach((r,i)=>{ if (wiz.checks[i]) logDose(p, r.t, r.a); });
-  save(); wiz={step:0, v:{look:'klar',smell:'nein',foam:'nein'}, ev:null, checks:{}, saved:false};
+  save(); wiz={step:0, v:{look:'klar',smell:'nein',foam:'nein'}, ev:null, checks:{}, saved:false, ticks:{}};
   view='home'; render(); window.scrollTo(0,0); toast('Gespeichert – danke! 💧');
 }
 
@@ -864,7 +891,7 @@ const after = {
       if (newVol!==c.vol){ c.vol=newVol; if(!c.dosesCustom){ const d=defaultDoses(p.type,newVol); c.usWeek=d.usWeek; if(p.type==='whirlpool') c.basicWeek=d.basicWeek; } }
       c.volConfirmed = true;
       const fc=n('filterCount'); if (fc!=null && fc>=0 && fc<=6 && fc!==p.filters.length){ while(p.filters.length<fc) p.filters.push({n:p.filters.length+1,status:p.filters.length?'spare':'in',since:null,cleanings:0,lastClean:null,uses:0}); p.filters.length=fc; }
-      for (const k of ['filterLifeMonths','filterMaxClean','shockPer1000','phMinusGper01','phPlusGper01','phMin','phMax','phCrit','phCritLow','usMin','usMax','taMin','taMax','hardMax']){ const v=n(k); if(v!=null) c[k]=v; }
+      for (const k of ['filterLifeMonths','filterMaxClean','shockPer1000','phMinusGper01','phPlusGper01','phMin','phMax','phCrit','phCritLow','usMin','usMax','taMin','taMax','taPlusGper10','hardMax']){ const v=n(k); if(v!=null) c[k]=v; }
       TASKS.forEach(t=>{const v=n('int_'+t.k); if(v) c.intervals[t.k]=v;});
       save(); render(); toast('Gespeichert');
     });
@@ -893,10 +920,11 @@ const after = {
 };
 
 document.addEventListener('click',e=>{
-  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-bathok],[data-ddel],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help]'); if(!t) return;
+  const t=e.target.closest('[data-view],[data-pool],[data-done],[data-bath],[data-del],[data-wtick],[data-bathok],[data-ddel],[data-wgo],[data-wstep],[data-close],[data-swapin],[data-fclean],[data-fcleanin],[data-fnew],[data-fedit],[data-fsave],[data-clear],[data-help]'); if(!t) return;
   const p0=P(), F=n=>p0.filters.find(f=>f.n===+n), now=new Date().toISOString();
   if (t.dataset.close!==undefined){ if(e.target===t || t.tagName==='BUTTON') closeModal(); return; }
   if (t.dataset.wgo){ wiz.step=Math.max(0,Math.min(6,wiz.step+ +t.dataset.wgo)); if(wiz.step===5&&!wiz.ev) wiz.step=4; render(); window.scrollTo(0,0); return; }
+  if (t.dataset.wtick){ wiz.ticks=wiz.ticks||{}; wiz.ticks[t.dataset.wtick]=!wiz.ticks[t.dataset.wtick]; render(); return; }
   if (t.dataset.wstep){ wiz.step=+t.dataset.wstep; render(); return; }
   if (t.dataset.swapin){ const out=p0.filters.find(f=>f.status==='in'), inn=F(t.dataset.swapin);
     if(out){ out.status='dirty'; if(!out.uses) out.uses=1; }
